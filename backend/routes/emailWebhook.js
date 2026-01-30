@@ -32,7 +32,7 @@ async function findOrCreateContactByEmail(email, name) {
 
   const newContact = await db.queryOne(
     `INSERT INTO contacts (email, name, tags) VALUES ($1, $2, $3) RETURNING *`,
-    [email, name || email, '[]']
+    [email, name || email, '{}']
   );
 
   console.log('Created new email contact:', name || email);

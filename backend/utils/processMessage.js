@@ -28,7 +28,7 @@ async function findOrCreateContact(from) {
     `INSERT INTO contacts (telegram_id, name, tags)
      VALUES ($1, $2, $3)
      RETURNING *`,
-    [telegramId, contactName, JSON.stringify([])]
+    [telegramId, contactName, '{}']
   );
 
   if (!newContact) {
