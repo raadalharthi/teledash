@@ -6,6 +6,81 @@ let pollingInterval = null;
 let isPolling = false;
 
 /**
+ * Extract plain text content from raw MIME email source
+ */
+function extractTextFromMime(raw) {
+  // Check for multipart boundary
+  const boundaryMatch = raw.match(/boundary="?([^"\r\n]+)"?/);
+
+  if (boundaryMatch) {
+    const boundary = boundaryMatch[1];
+    const parts = raw.split('--' + boundary);
+
+    // Find the text/plain part
+    for (const part of parts) {
+      if (part.includes('Content-Type: text/plain')) {
+        // Extract body after the part headers (double newline)
+        const partBodyStart = part.indexOf('\r\n\r\n');
+        if (partBodyStart !== -1) {
+          let text = part.substring(partBodyStart + 4);
+          // Remove trailing boundary markers
+          text = text.replace(/--$/, '').trim();
+          // Handle quoted-printable encoding
+          if (part.includes('Content-Transfer-Encoding: quoted-printable')) {
+            text = text.replace(/=\r?\n/g, '').replace(/=([0-9A-Fa-f]{2})/g, (_, hex) =>
+              String.fromCharCode(parseInt(hex, 16))
+            );
+          }
+          // Handle base64 encoding
+          if (part.includes('Content-Transfer-Encoding: base64')) {
+            try { text = Buffer.from(text.replace(/\s/g, ''), 'base64').toString('utf-8'); } catch (e) {}
+          }
+          return text.trim();
+        }
+      }
+    }
+
+    // Fallback: try text/html part and strip tags
+    for (const part of parts) {
+      if (part.includes('Content-Type: text/html')) {
+        const partBodyStart = part.indexOf('\r\n\r\n');
+        if (partBodyStart !== -1) {
+          let html = part.substring(partBodyStart + 4).replace(/--$/, '').trim();
+          if (part.includes('Content-Transfer-Encoding: quoted-printable')) {
+            html = html.replace(/=\r?\n/g, '').replace(/=([0-9A-Fa-f]{2})/g, (_, hex) =>
+              String.fromCharCode(parseInt(hex, 16))
+            );
+          }
+          if (part.includes('Content-Transfer-Encoding: base64')) {
+            try { html = Buffer.from(html.replace(/\s/g, ''), 'base64').toString('utf-8'); } catch (e) {}
+          }
+          return html.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').trim();
+        }
+      }
+    }
+  }
+
+  // Not multipart — extract body after headers
+  const headerEnd = raw.indexOf('\r\n\r\n');
+  let text = headerEnd !== -1 ? raw.substring(headerEnd + 4) : raw;
+
+  // Handle quoted-printable
+  if (raw.includes('Content-Transfer-Encoding: quoted-printable')) {
+    text = text.replace(/=\r?\n/g, '').replace(/=([0-9A-Fa-f]{2})/g, (_, hex) =>
+      String.fromCharCode(parseInt(hex, 16))
+    );
+  }
+  // Handle base64
+  if (raw.includes('Content-Transfer-Encoding: base64')) {
+    try { text = Buffer.from(text.replace(/\s/g, ''), 'base64').toString('utf-8'); } catch (e) {}
+  }
+
+  // Strip HTML if present
+  text = text.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').trim();
+  return text;
+}
+
+/**
  * Find or create a contact by email address
  */
 async function findOrCreateEmailContact(fromEmail, fromName) {
@@ -92,29 +167,12 @@ async function processEmail(msg, emailConfig) {
     );
     if (existing) return;
 
-    // Get text body from raw source
+    // Extract text body from raw MIME source
     let bodyText = '';
     if (msg.source) {
       const raw = msg.source.toString();
-      // Try to extract body after double newline (headers end)
-      const headerEnd = raw.indexOf('\r\n\r\n');
-      if (headerEnd !== -1) {
-        bodyText = raw.substring(headerEnd + 4);
-      } else {
-        bodyText = raw;
-      }
+      bodyText = extractTextFromMime(raw);
     }
-
-    // Strip HTML tags and decode entities
-    bodyText = bodyText
-      .replace(/<[^>]+>/g, '')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/=\r?\n/g, '') // quoted-printable soft line breaks
-      .replace(/\r\n/g, '\n')
-      .trim();
 
     // Limit body length
     if (bodyText.length > 5000) {
