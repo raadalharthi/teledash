@@ -91,23 +91,28 @@ async function processEmail(msg, emailConfig) {
     );
     if (existing) return;
 
-    // Get text body
+    // Get text body from raw source
     let bodyText = '';
-    if (msg.bodyParts) {
-      for (const [, part] of msg.bodyParts) {
-        bodyText += part.toString();
+    if (msg.source) {
+      const raw = msg.source.toString();
+      // Try to extract body after double newline (headers end)
+      const headerEnd = raw.indexOf('\r\n\r\n');
+      if (headerEnd !== -1) {
+        bodyText = raw.substring(headerEnd + 4);
+      } else {
+        bodyText = raw;
       }
-    } else if (msg.source) {
-      bodyText = msg.source.toString();
     }
 
-    // Simple text extraction - strip HTML tags if present
+    // Strip HTML tags and decode entities
     bodyText = bodyText
       .replace(/<[^>]+>/g, '')
       .replace(/&nbsp;/g, ' ')
       .replace(/&amp;/g, '&')
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
+      .replace(/=\r?\n/g, '') // quoted-printable soft line breaks
+      .replace(/\r\n/g, '\n')
       .trim();
 
     // Limit body length
@@ -221,32 +226,51 @@ async function pollInbox() {
       logger: false,
     });
 
+    console.log(`IMAP: connecting to ${imap.host}:${imap.port} as ${config.email || config.smtp?.user}`);
     await client.connect();
+    console.log('IMAP: connected');
 
     const lock = await client.getMailboxLock('INBOX');
 
     try {
-      // Fetch unseen messages
-      const messages = [];
-      for await (const msg of client.fetch({ seen: false }, {
-        envelope: true,
-        uid: true,
-        bodyParts: ['text'],
-      })) {
-        messages.push(msg);
-      }
+      // Check mailbox status
+      const status = client.mailbox;
+      console.log(`IMAP: INBOX has ${status.exists} total, ${status.unseen || 0} unseen`);
 
-      if (messages.length > 0) {
-        console.log(`Found ${messages.length} new email(s)`);
+      if (!status.exists || status.exists === 0) {
+        console.log('IMAP: inbox empty, skipping');
+      } else {
+        // Fetch unseen messages
+        const messages = [];
+        try {
+          for await (const msg of client.fetch({ seen: false }, {
+            envelope: true,
+            uid: true,
+            source: true,
+          })) {
+            messages.push(msg);
+          }
+        } catch (fetchErr) {
+          // "Nothing to fetch" is normal when no unseen messages
+          if (!fetchErr.message?.includes('Nothing to fetch')) {
+            console.error('IMAP fetch error:', fetchErr.message);
+          } else {
+            console.log('IMAP: no unseen messages');
+          }
+        }
 
-        for (const msg of messages) {
-          await processEmail(msg, config);
+        if (messages.length > 0) {
+          console.log(`IMAP: found ${messages.length} new email(s)`);
 
-          // Mark as seen
-          try {
-            await client.messageFlagsAdd({ uid: msg.uid }, ['\\Seen']);
-          } catch (e) {
-            // Ignore flag errors
+          for (const msg of messages) {
+            await processEmail(msg, config);
+
+            // Mark as seen
+            try {
+              await client.messageFlagsAdd({ uid: msg.uid }, ['\\Seen']);
+            } catch (e) {
+              // Ignore flag errors
+            }
           }
         }
       }
@@ -255,10 +279,9 @@ async function pollInbox() {
     }
 
     await client.logout();
+    console.log('IMAP: poll complete');
   } catch (error) {
-    if (!error.message?.includes('not configured') && !error.message?.includes('not installed')) {
-      console.error('IMAP poll error:', error.message);
-    }
+    console.error('IMAP poll error:', error.message);
   } finally {
     isPolling = false;
   }
