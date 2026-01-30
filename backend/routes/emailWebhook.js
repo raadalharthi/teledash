@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const supabase = require('../supabase');
+const db = require('../db');
 
 /**
  * Extract email address from "Name <email@domain.com>" format
@@ -24,32 +24,18 @@ function extractName(emailString) {
  * Find or create contact by email
  */
 async function findOrCreateContactByEmail(email, name) {
-  // Try to find existing contact
-  const { data: existing } = await supabase
-    .from('contacts')
-    .select('*')
-    .eq('email', email)
-    .single();
+  const existing = await db.queryOne(
+    `SELECT * FROM contacts WHERE email = $1`, [email]
+  );
 
   if (existing) return existing;
 
-  // Create new contact
-  const { data: newContact, error } = await supabase
-    .from('contacts')
-    .insert({
-      email,
-      name: name || email,
-      tags: []
-    })
-    .select()
-    .single();
+  const newContact = await db.queryOne(
+    `INSERT INTO contacts (email, name, tags) VALUES ($1, $2, $3) RETURNING *`,
+    [email, name || email, '[]']
+  );
 
-  if (error) {
-    console.error('Error creating contact:', error);
-    throw error;
-  }
-
-  console.log('✅ Created new email contact:', name || email);
+  console.log('Created new email contact:', name || email);
   return newContact;
 }
 
@@ -57,151 +43,75 @@ async function findOrCreateContactByEmail(email, name) {
  * Find or create conversation for email
  */
 async function findOrCreateEmailConversation(email, contactId) {
-  // Try to find existing conversation
-  const { data: existing } = await supabase
-    .from('conversations')
-    .select('*')
-    .eq('channel_type', 'email')
-    .eq('channel_chat_id', email)
-    .single();
+  const existing = await db.queryOne(
+    `SELECT * FROM conversations WHERE channel_type = 'email' AND channel_chat_id = $1`,
+    [email]
+  );
 
   if (existing) return existing;
 
-  // Create new conversation
-  const { data: newConv, error } = await supabase
-    .from('conversations')
-    .insert({
-      channel_type: 'email',
-      channel_chat_id: email,
-      contact_id: contactId,
-      unread_count: 0
-    })
-    .select()
-    .single();
+  const newConv = await db.queryOne(
+    `INSERT INTO conversations (channel_type, channel_chat_id, contact_id, unread_count)
+     VALUES ('email', $1, $2, 0) RETURNING *`,
+    [email, contactId]
+  );
 
-  if (error) {
-    console.error('Error creating conversation:', error);
-    throw error;
-  }
-
-  console.log('✅ Created new email conversation:', newConv.id);
+  console.log('Created new email conversation:', newConv.id);
   return newConv;
 }
 
 /**
  * POST /api/email/webhook
- * Receives incoming emails from email provider (SendGrid, Mailgun, etc.)
- *
- * Expected payload format (adjust based on your email provider):
- * {
- *   from: "Name <email@domain.com>",
- *   to: "support@yourdomain.com",
- *   subject: "Email subject",
- *   text: "Plain text body",
- *   html: "<p>HTML body</p>",
- *   messageId: "unique-message-id"
- * }
  */
 router.post('/webhook', async (req, res) => {
   try {
-    console.log('📧 Received email webhook');
+    console.log('Received email webhook');
 
     const {
-      from,
-      to,
-      subject,
-      text,
-      html,
-      messageId,
-      // SendGrid specific fields
-      sender_ip,
-      spam_score,
-      // Mailgun specific fields
+      from, to, subject, text, html, messageId,
+      sender_ip, spam_score,
       'message-id': mailgunMessageId,
       'body-plain': mailgunText,
       'body-html': mailgunHtml,
       'stripped-text': strippedText
     } = req.body;
 
-    // Handle different email provider formats
     const emailFrom = from;
     const emailSubject = subject || '(No subject)';
     const emailText = text || mailgunText || strippedText || '';
     const emailMessageId = messageId || mailgunMessageId;
 
     if (!emailFrom) {
-      console.log('⚠️ No from address in webhook');
-      return res.status(400).json({
-        success: false,
-        error: 'From address required'
-      });
+      return res.status(400).json({ success: false, error: 'From address required' });
     }
 
-    // Extract email and name
     const fromEmail = extractEmail(emailFrom);
     const fromName = extractName(emailFrom) || fromEmail;
 
-    console.log(`📨 Processing email from: ${fromName} <${fromEmail}>`);
-
-    // Find or create contact
     const contact = await findOrCreateContactByEmail(fromEmail, fromName);
-
-    // Find or create conversation
     const conversation = await findOrCreateEmailConversation(fromEmail, contact.id);
 
-    // Store message
-    const { data: message, error: messageError } = await supabase
-      .from('messages')
-      .insert({
-        conversation_id: conversation.id,
-        sender_type: 'user',
-        sender_id: fromEmail,
-        text: emailText,
-        email_subject: emailSubject,
-        email_from: emailFrom,
-        email_to: to,
-        status: 'sent'
-      })
-      .select()
-      .single();
+    const message = await db.queryOne(
+      `INSERT INTO messages (conversation_id, sender_type, sender_id, text, email_subject, email_from, email_to, status)
+       VALUES ($1, 'user', $2, $3, $4, $5, $6, 'sent') RETURNING *`,
+      [conversation.id, fromEmail, emailText, emailSubject, emailFrom, to]
+    );
 
-    if (messageError) {
-      console.error('Error storing email message:', messageError);
-      throw messageError;
-    }
+    await db.query(
+      `UPDATE conversations SET last_message_text = $1, last_message_time = NOW(), unread_count = unread_count + 1
+       WHERE id = $2`,
+      [(emailSubject || emailText.substring(0, 100)), conversation.id]
+    );
 
-    // Update conversation
-    const { error: updateError } = await supabase
-      .from('conversations')
-      .update({
-        last_message_text: emailSubject || emailText.substring(0, 100),
-        last_message_time: new Date().toISOString(),
-        unread_count: conversation.unread_count + 1
-      })
-      .eq('id', conversation.id);
-
-    if (updateError) {
-      console.error('Error updating conversation:', updateError);
-    }
-
-    console.log('✅ Email processed successfully:', message.id);
-
-    res.json({
-      success: true,
-      messageId: message.id
-    });
+    res.json({ success: true, messageId: message.id });
   } catch (error) {
-    console.error('❌ Error processing email webhook:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    console.error('Error processing email webhook:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
 /**
  * GET /api/email/webhook
- * Health check for email webhook
  */
 router.get('/webhook', (req, res) => {
   res.json({

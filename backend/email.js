@@ -1,4 +1,4 @@
-const supabase = require('./supabase');
+const db = require('./db');
 
 // Cache for SMTP transport
 let transportCache = null;
@@ -8,18 +8,10 @@ let cachedConfig = null;
  * Get email channel configuration from database
  */
 async function getEmailConfig() {
-  const { data, error } = await supabase
-    .from('channels')
-    .select('config, is_active')
-    .eq('channel_type', 'email')
-    .single();
-
-  if (error && error.code !== 'PGRST116') {
-    console.error('Error fetching email config:', error);
-    throw error;
-  }
-
-  return data;
+  const result = await db.queryOne(
+    `SELECT config, is_active FROM channels WHERE channel_type = 'email' LIMIT 1`
+  );
+  return result;
 }
 
 /**
