@@ -56,15 +56,23 @@ export interface TelegramConfig {
 }
 
 export interface EmailConfig {
-  smtp: {
+  email: string;
+  password: string;
+  display_name?: string;
+  // Auto-detected or manually overridden
+  imap?: {
     host: string;
     port: number;
-    secure?: boolean;
-    user: string;
-    password: string;
+    secure: boolean;
   };
-  from_name: string;
-  from_email: string;
+  smtp?: {
+    host: string;
+    port: number;
+    secure: boolean;
+  };
+  // Legacy fields for backwards compat
+  from_name?: string;
+  from_email?: string;
 }
 
 export interface ConnectionTestResult {

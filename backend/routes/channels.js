@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const TelegramBot = require('node-telegram-bot-api');
+const { testConnection: testEmailConn, resolveEmailConfig } = require('../email');
 
 /**
  * Mask sensitive fields in config for frontend display
@@ -16,6 +17,11 @@ function maskConfig(config, channelType) {
   }
 
   if (channelType === 'email') {
+    // New simplified format
+    if (masked.password) {
+      masked.password = '********';
+    }
+    // Legacy SMTP format
     if (masked.smtp?.password) {
       masked.smtp = { ...masked.smtp, password: '********' };
     }
@@ -26,7 +32,6 @@ function maskConfig(config, channelType) {
 
 /**
  * GET /api/channels
- * Get all channels (config is masked)
  */
 router.get('/', async (req, res) => {
   try {
@@ -42,92 +47,59 @@ router.get('/', async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching channels:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
 /**
  * GET /api/channels/:type
- * Get specific channel config (masked)
  */
 router.get('/:type', async (req, res) => {
   try {
     const { type } = req.params;
-
-    const result = await db.queryOne(`
-      SELECT * FROM channels WHERE channel_type = $1
-    `, [type]);
+    const result = await db.queryOne(`SELECT * FROM channels WHERE channel_type = $1`, [type]);
 
     if (!result) {
-      return res.json({
-        success: true,
-        channel: null
-      });
+      return res.json({ success: true, channel: null });
     }
-
-    // Mask sensitive fields
-    const maskedConfig = maskConfig(result.config, type);
 
     res.json({
       success: true,
-      channel: {
-        ...result,
-        config: maskedConfig
-      }
+      channel: { ...result, config: maskConfig(result.config, type) }
     });
   } catch (error) {
     console.error('Error fetching channel:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
 /**
  * POST /api/channels/:type
- * Create or update channel config
  */
 router.post('/:type', async (req, res) => {
   try {
     const { type } = req.params;
     const { config, is_active = true } = req.body;
 
-    // Validate config
     const validation = validateConfig(type, config);
     if (!validation.valid) {
-      return res.status(400).json({
-        success: false,
-        errors: validation.errors
-      });
+      return res.status(400).json({ success: false, errors: validation.errors });
     }
 
-    // Check if channel exists
-    const existing = await db.queryOne(`
-      SELECT id, config FROM channels WHERE channel_type = $1
-    `, [type]);
+    const existing = await db.queryOne(`SELECT id, config FROM channels WHERE channel_type = $1`, [type]);
 
     let result;
 
     if (existing) {
-      // Merge config - keep existing values if new ones are masked
       const mergedConfig = mergeConfig(existing.config, config, type);
-
       result = await db.queryOne(`
-        UPDATE channels
-        SET config = $1, is_active = $2, updated_at = NOW()
-        WHERE channel_type = $3
-        RETURNING *
+        UPDATE channels SET config = $1, is_active = $2, updated_at = NOW()
+        WHERE channel_type = $3 RETURNING *
       `, [JSON.stringify(mergedConfig), is_active, type]);
     } else {
-      // Create new channel
       result = await db.queryOne(`
         INSERT INTO channels (channel_type, config, is_active)
-        VALUES ($1, $2, $3)
-        RETURNING *
+        VALUES ($1, $2, $3) RETURNING *
       `, [type, JSON.stringify(config), is_active]);
     }
 
@@ -135,23 +107,16 @@ router.post('/:type', async (req, res) => {
 
     res.json({
       success: true,
-      channel: {
-        ...result,
-        config: maskConfig(result.config, type)
-      }
+      channel: { ...result, config: maskConfig(result.config, type) }
     });
   } catch (error) {
     console.error('Error saving channel:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
 /**
  * POST /api/channels/:type/test
- * Test channel connection
  */
 router.post('/:type/test', async (req, res) => {
   try {
@@ -159,21 +124,17 @@ router.post('/:type/test', async (req, res) => {
     let { config } = req.body;
 
     // If password is masked, get the real password from database
-    if (type === 'email' && config?.smtp?.password === '********') {
-      const existing = await db.queryOne(`
-        SELECT config FROM channels WHERE channel_type = 'email'
-      `);
-
-      if (existing?.config?.smtp?.password) {
-        config = {
-          ...config,
-          smtp: {
-            ...config.smtp,
-            password: existing.config.smtp.password
-          }
-        };
-      } else {
-        return res.json({ success: false, error: 'No saved password found' });
+    if (type === 'email') {
+      const existing = await db.queryOne(`SELECT config FROM channels WHERE channel_type = 'email'`);
+      if (existing) {
+        // New format
+        if (config.password === '********' && existing.config.password) {
+          config = { ...config, password: existing.config.password };
+        }
+        // Legacy format
+        if (config.smtp?.password === '********' && existing.config.smtp?.password) {
+          config = { ...config, smtp: { ...config.smtp, password: existing.config.smtp.password } };
+        }
       }
     }
 
@@ -184,7 +145,7 @@ router.post('/:type/test', async (req, res) => {
         result = await testTelegramConnection(config);
         break;
       case 'email':
-        result = await testEmailConnection(config);
+        result = await testEmailConn(config);
         break;
       default:
         result = { success: false, error: 'Unknown channel type' };
@@ -193,37 +154,22 @@ router.post('/:type/test', async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error testing channel:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
 /**
  * DELETE /api/channels/:type
- * Disable a channel
  */
 router.delete('/:type', async (req, res) => {
   try {
     const { type } = req.params;
-
-    await db.query(`
-      UPDATE channels SET is_active = false WHERE channel_type = $1
-    `, [type]);
-
+    await db.query(`UPDATE channels SET is_active = false WHERE channel_type = $1`, [type]);
     console.log(`Channel ${type} disabled`);
-
-    res.json({
-      success: true,
-      message: `Channel ${type} disabled`
-    });
+    res.json({ success: true, message: `Channel ${type} disabled` });
   } catch (error) {
     console.error('Error disabling channel:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -248,17 +194,19 @@ function validateConfig(type, config) {
       break;
 
     case 'email':
-      if (!config.smtp) {
-        errors.push('SMTP configuration is required');
-      } else {
-        if (!config.smtp.host) errors.push('SMTP host is required');
-        if (!config.smtp.port) errors.push('SMTP port is required');
-        if (!config.smtp.user) errors.push('SMTP username is required');
-        if (!config.smtp.password && config.smtp.password !== '********') {
-          errors.push('SMTP password is required');
+      // Support both new simplified format (email + password) and legacy SMTP format
+      if (config.email) {
+        // New format - just need email, password is optional if already saved
+        if (!config.password && config.password !== '********') {
+          // Password might already be saved, allow save without it
         }
+      } else if (config.smtp) {
+        // Legacy format
+        if (!config.smtp.host) errors.push('SMTP host is required');
+        if (!config.smtp.user) errors.push('SMTP username is required');
+      } else {
+        errors.push('Email address is required');
       }
-      if (!config.from_email) errors.push('From email is required');
       break;
 
     default:
@@ -283,11 +231,13 @@ function mergeConfig(existingConfig, newConfig, type) {
   }
 
   if (type === 'email') {
+    // New format password
+    if (merged.password === '********' && existingConfig.password) {
+      merged.password = existingConfig.password;
+    }
+    // Legacy SMTP password
     if (merged.smtp?.password === '********' && existingConfig.smtp?.password) {
-      merged.smtp = {
-        ...merged.smtp,
-        password: existingConfig.smtp.password
-      };
+      merged.smtp = { ...merged.smtp, password: existingConfig.smtp.password };
     }
   }
 
@@ -309,57 +259,10 @@ async function testTelegramConnection(config) {
     return {
       success: true,
       message: `Connected to bot: @${me.username}`,
-      bot_info: {
-        username: me.username,
-        first_name: me.first_name,
-        id: me.id
-      }
+      bot_info: { username: me.username, first_name: me.first_name, id: me.id }
     };
   } catch (error) {
-    return {
-      success: false,
-      error: error.message || 'Failed to connect to Telegram'
-    };
-  }
-}
-
-/**
- * Test email SMTP connection
- */
-async function testEmailConnection(config) {
-  try {
-    if (!config.smtp) {
-      return { success: false, error: 'SMTP configuration required' };
-    }
-
-    let nodemailer;
-    try {
-      nodemailer = require('nodemailer');
-    } catch (e) {
-      return { success: false, error: 'Nodemailer not installed. Run: npm install nodemailer' };
-    }
-
-    const transport = nodemailer.createTransport({
-      host: config.smtp.host,
-      port: config.smtp.port,
-      secure: config.smtp.port === 465,
-      auth: {
-        user: config.smtp.user,
-        pass: config.smtp.password
-      }
-    });
-
-    await transport.verify();
-
-    return {
-      success: true,
-      message: 'SMTP connection successful'
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: error.message || 'Failed to connect to SMTP server'
-    };
+    return { success: false, error: error.message || 'Failed to connect to Telegram' };
   }
 }
 

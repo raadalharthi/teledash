@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 
-// Common timezones list
 const TIMEZONES = [
   { value: 'auto', label: 'Auto-detect (Browser timezone)' },
   { value: 'UTC', label: 'UTC (Coordinated Universal Time)' },
@@ -44,7 +43,6 @@ export function GeneralSettings() {
   const [success, setSuccess] = useState(false);
   const [detectedTimezone, setDetectedTimezone] = useState('');
 
-  // Load settings from localStorage
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -55,8 +53,6 @@ export function GeneralSettings() {
     } catch (e) {
       console.error('Error loading settings:', e);
     }
-
-    // Detect browser timezone
     try {
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
       setDetectedTimezone(tz);
@@ -70,8 +66,6 @@ export function GeneralSettings() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
-
-      // Dispatch event so other components can react to settings change
       window.dispatchEvent(new CustomEvent('teledash-settings-changed', { detail: settings }));
     } catch (e) {
       console.error('Error saving settings:', e);
@@ -94,83 +88,67 @@ export function GeneralSettings() {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow">
-      <div className="p-6 border-b border-gray-200">
+    <div className="bg-white rounded-xl shadow-card overflow-hidden">
+      <div className="p-6 border-b border-surface-100">
         <div className="flex items-center gap-3">
-          <span className="text-3xl">&#9881;</span>
+          <div className="w-10 h-10 rounded-xl bg-surface-700 flex items-center justify-center">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </div>
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">General Settings</h2>
-            <p className="text-sm text-gray-500">Configure display preferences</p>
+            <h2 className="text-lg font-semibold text-surface-900">General Settings</h2>
+            <p className="text-sm text-surface-400">Configure display preferences</p>
           </div>
         </div>
       </div>
 
-      <div className="p-6 space-y-6">
-        {/* Timezone Section */}
+      <div className="p-6 space-y-5">
         <div>
-          <h3 className="text-md font-medium text-gray-900 mb-4">Time & Date</h3>
+          <h3 className="text-sm font-semibold text-surface-900 mb-4">Time & Date</h3>
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Timezone
-              </label>
+              <label className="block text-sm font-medium text-surface-700 mb-2">Timezone</label>
               <select
                 value={settings.timezone}
                 onChange={(e) => setSettings((prev) => ({ ...prev, timezone: e.target.value }))}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-telegram-blue bg-white"
+                className="w-full px-4 py-2.5 bg-surface-50 border border-surface-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-400 text-sm transition-all duration-200"
               >
                 {TIMEZONES.map((tz) => (
-                  <option key={tz.value} value={tz.value}>
-                    {tz.label}
-                  </option>
+                  <option key={tz.value} value={tz.value}>{tz.label}</option>
                 ))}
               </select>
               {settings.timezone === 'auto' && (
-                <p className="mt-1 text-xs text-gray-500">
-                  Detected timezone: {detectedTimezone}
-                </p>
+                <p className="mt-1.5 text-xs text-surface-400">Detected: {detectedTimezone}</p>
               )}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Time Format
-              </label>
+              <label className="block text-sm font-medium text-surface-700 mb-2">Time Format</label>
               <div className="flex gap-4">
-                <label className="flex items-center">
-                  <input
-                    type="radio"
-                    name="timeFormat"
-                    value="12h"
-                    checked={settings.timeFormat === '12h'}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, timeFormat: e.target.value }))}
-                    className="mr-2"
-                  />
-                  <span className="text-sm text-gray-700">12-hour (2:30 PM)</span>
-                </label>
-                <label className="flex items-center">
-                  <input
-                    type="radio"
-                    name="timeFormat"
-                    value="24h"
-                    checked={settings.timeFormat === '24h'}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, timeFormat: e.target.value }))}
-                    className="mr-2"
-                  />
-                  <span className="text-sm text-gray-700">24-hour (14:30)</span>
-                </label>
+                {[{ value: '12h', label: '12-hour (2:30 PM)' }, { value: '24h', label: '24-hour (14:30)' }].map((opt) => (
+                  <label key={opt.value} className="flex items-center cursor-pointer">
+                    <input
+                      type="radio"
+                      name="timeFormat"
+                      value={opt.value}
+                      checked={settings.timeFormat === opt.value}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, timeFormat: e.target.value }))}
+                      className="mr-2 accent-brand-500"
+                    />
+                    <span className="text-sm text-surface-600">{opt.label}</span>
+                  </label>
+                ))}
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Date Format
-              </label>
+              <label className="block text-sm font-medium text-surface-700 mb-2">Date Format</label>
               <select
                 value={settings.dateFormat}
                 onChange={(e) => setSettings((prev) => ({ ...prev, dateFormat: e.target.value }))}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-telegram-blue bg-white"
+                className="w-full px-4 py-2.5 bg-surface-50 border border-surface-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-400 text-sm transition-all duration-200"
               >
                 <option value="MMM D, YYYY">Jan 25, 2026</option>
                 <option value="D MMM YYYY">25 Jan 2026</option>
@@ -180,26 +158,24 @@ export function GeneralSettings() {
               </select>
             </div>
 
-            {/* Preview */}
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <p className="text-sm text-gray-600 mb-1">Current time preview:</p>
-              <p className="text-lg font-medium text-gray-900">{getCurrentTime()}</p>
+            <div className="p-4 bg-surface-50 rounded-xl border border-surface-100">
+              <p className="text-xs text-surface-400 mb-1">Current time preview</p>
+              <p className="text-lg font-semibold text-surface-900">{getCurrentTime()}</p>
             </div>
           </div>
         </div>
 
-        {/* Success Message */}
         {success && (
-          <div className="p-4 rounded-lg bg-green-50 text-green-800 flex items-center gap-2">
-            <span>&#10003;</span> Settings saved successfully
+          <div className="p-4 rounded-xl bg-emerald-50 text-emerald-800 text-sm flex items-center gap-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>
+            Settings saved successfully
           </div>
         )}
 
-        {/* Save Button */}
-        <div className="flex justify-end pt-4 border-t border-gray-200">
+        <div className="flex justify-end pt-4 border-t border-surface-100">
           <button
             onClick={handleSave}
-            className="px-6 py-2 bg-telegram-blue text-white rounded-lg hover:bg-blue-600 transition-colors"
+            className="px-6 py-2.5 bg-brand-500 text-white rounded-xl hover:bg-brand-600 transition-all duration-200 text-sm font-medium shadow-sm hover:shadow-md"
           >
             Save Changes
           </button>
@@ -209,8 +185,7 @@ export function GeneralSettings() {
   );
 }
 
-// Helper function to get current settings (can be imported by other components)
-export function getGeneralSettings(): GeneralSettingsData {
+export function getGeneralSettings(): { timezone: string; dateFormat: string; timeFormat: string } {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
@@ -222,12 +197,10 @@ export function getGeneralSettings(): GeneralSettingsData {
   return defaultSettings;
 }
 
-// Helper to format date with user's timezone preference
 export function formatDateTime(date: Date | string, includeDate = true): string {
   const settings = getGeneralSettings();
   const dateObj = typeof date === 'string' ? new Date(date) : date;
 
-  // Get the timezone
   let tz: string | undefined;
   if (settings.timezone !== 'auto') {
     tz = settings.timezone;
