@@ -10,16 +10,31 @@ interface ApiResponse<T> {
   [key: string]: any;
 }
 
+// Auth token management
+export function getToken(): string | null {
+  return localStorage.getItem('teledash_token');
+}
+
+export function setToken(token: string): void {
+  localStorage.setItem('teledash_token', token);
+}
+
+export function clearToken(): void {
+  localStorage.removeItem('teledash_token');
+}
+
 async function request<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<ApiResponse<T>> {
   try {
     const url = `${API_URL}${endpoint}`;
+    const token = getToken();
     const response = await fetch(url, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...options.headers,
       },
     });
@@ -112,6 +127,23 @@ export const webhookApi = {
 // Health check
 export const healthApi = {
   check: () => request<any>('/api/health'),
+};
+
+// Auth API
+export const authApi = {
+  login: (email: string, password: string) =>
+    request<any>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
+
+  register: (email: string, password: string, name: string) =>
+    request<any>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, name }),
+    }),
+
+  getMe: () => request<any>('/api/auth/me'),
 };
 
 export { API_URL };

@@ -2,6 +2,7 @@
 // Replaces Supabase Realtime
 
 import { io, Socket } from 'socket.io-client';
+import { getToken } from './api';
 
 const SOCKET_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
 
@@ -14,6 +15,9 @@ export function getSocket(): Socket {
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
+      auth: {
+        token: getToken(),
+      },
     });
 
     socket.on('connect', () => {
@@ -37,6 +41,11 @@ export function disconnectSocket(): void {
     socket.disconnect();
     socket = null;
   }
+}
+
+export function reconnectSocket(): void {
+  disconnectSocket();
+  getSocket();
 }
 
 // Conversation room management

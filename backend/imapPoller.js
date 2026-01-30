@@ -83,18 +83,18 @@ function extractTextFromMime(raw) {
 /**
  * Find or create a contact by email address
  */
-async function findOrCreateEmailContact(fromEmail, fromName) {
+async function findOrCreateEmailContact(fromEmail, fromName, userId) {
   const existing = await db.queryOne(
-    'SELECT * FROM contacts WHERE email = $1',
-    [fromEmail]
+    'SELECT * FROM contacts WHERE email = $1 AND user_id = $2',
+    [fromEmail, userId]
   );
 
   if (existing) return existing;
 
   const name = fromName || fromEmail.split('@')[0];
   const newContact = await db.queryOne(
-    `INSERT INTO contacts (email, name, tags) VALUES ($1, $2, $3) RETURNING *`,
-    [fromEmail, name, '{}']
+    `INSERT INTO contacts (email, name, tags, user_id) VALUES ($1, $2, $3, $4) RETURNING *`,
+    [fromEmail, name, '{}', userId]
   );
 
   console.log('Created email contact:', name);
@@ -104,18 +104,18 @@ async function findOrCreateEmailContact(fromEmail, fromName) {
 /**
  * Find or create an email conversation
  */
-async function findOrCreateEmailConversation(emailAddress, contactId) {
+async function findOrCreateEmailConversation(emailAddress, contactId, userId) {
   const existing = await db.queryOne(
-    `SELECT * FROM conversations WHERE channel_type = 'email' AND channel_chat_id = $1`,
-    [emailAddress]
+    `SELECT * FROM conversations WHERE channel_type = 'email' AND channel_chat_id = $1 AND user_id = $2`,
+    [emailAddress, userId]
   );
 
   if (existing) return { conversation: existing, isNew: false };
 
   const newConv = await db.queryOne(
-    `INSERT INTO conversations (channel_type, channel_chat_id, contact_id, unread_count)
-     VALUES ('email', $1, $2, 0) RETURNING *`,
-    [emailAddress, contactId]
+    `INSERT INTO conversations (channel_type, channel_chat_id, contact_id, unread_count, user_id)
+     VALUES ('email', $1, $2, 0, $3) RETURNING *`,
+    [emailAddress, contactId, userId]
   );
 
   console.log('Created email conversation:', newConv.id);
@@ -143,7 +143,7 @@ function parseEmailAddress(addr) {
 /**
  * Process a single email message
  */
-async function processEmail(msg, emailConfig) {
+async function processEmail(msg, emailConfig, userId) {
   try {
     const from = msg.envelope?.from?.[0];
     if (!from) return;
@@ -184,8 +184,8 @@ async function processEmail(msg, emailConfig) {
       : bodyText || '(Empty email)';
 
     // Find or create contact and conversation
-    const contact = await findOrCreateEmailContact(fromEmail, fromName);
-    const { conversation, isNew } = await findOrCreateEmailConversation(fromEmail, contact.id);
+    const contact = await findOrCreateEmailContact(fromEmail, fromName, userId);
+    const { conversation, isNew } = await findOrCreateEmailConversation(fromEmail, contact.id, userId);
 
     // Store message (use sender_id for email messageId dedup, not telegram_message_id which is integer)
     const newMessage = await db.queryOne(
@@ -244,16 +244,11 @@ async function pollInbox() {
 
   try {
     const channel = await db.queryOne(
-      `SELECT config, is_active FROM channels WHERE channel_type = 'email' LIMIT 1`
+      `SELECT config, is_active, user_id FROM channels WHERE channel_type = 'email' AND is_active = true LIMIT 1`
     );
 
     if (!channel) {
-      console.log('IMAP: no email channel found in database');
-      isPolling = false;
-      return;
-    }
-    if (!channel.is_active) {
-      console.log('IMAP: email channel is disabled');
+      console.log('IMAP: no active email channel found');
       isPolling = false;
       return;
     }
@@ -330,7 +325,7 @@ async function pollInbox() {
           console.log(`IMAP: found ${messages.length} new email(s)`);
 
           for (const msg of messages) {
-            await processEmail(msg, config);
+            await processEmail(msg, config, channel.user_id);
 
             // Mark as seen
             try {

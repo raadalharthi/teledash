@@ -38,8 +38,9 @@ router.get('/', async (req, res) => {
     const result = await db.query(`
       SELECT id, channel_type, is_active, created_at, updated_at
       FROM channels
+      WHERE user_id = $1
       ORDER BY channel_type
-    `);
+    `, [req.user.id]);
 
     res.json({
       success: true,
@@ -57,7 +58,7 @@ router.get('/', async (req, res) => {
 router.get('/:type', async (req, res) => {
   try {
     const { type } = req.params;
-    const result = await db.queryOne(`SELECT * FROM channels WHERE channel_type = $1`, [type]);
+    const result = await db.queryOne(`SELECT * FROM channels WHERE channel_type = $1 AND user_id = $2`, [type, req.user.id]);
 
     if (!result) {
       return res.json({ success: true, channel: null });
@@ -86,7 +87,7 @@ router.post('/:type', async (req, res) => {
       return res.status(400).json({ success: false, errors: validation.errors });
     }
 
-    const existing = await db.queryOne(`SELECT id, config FROM channels WHERE channel_type = $1`, [type]);
+    const existing = await db.queryOne(`SELECT id, config FROM channels WHERE channel_type = $1 AND user_id = $2`, [type, req.user.id]);
 
     let result;
 
@@ -94,13 +95,13 @@ router.post('/:type', async (req, res) => {
       const mergedConfig = mergeConfig(existing.config, config, type);
       result = await db.queryOne(`
         UPDATE channels SET config = $1, is_active = $2, updated_at = NOW()
-        WHERE channel_type = $3 RETURNING *
-      `, [JSON.stringify(mergedConfig), is_active, type]);
+        WHERE channel_type = $3 AND user_id = $4 RETURNING *
+      `, [JSON.stringify(mergedConfig), is_active, type, req.user.id]);
     } else {
       result = await db.queryOne(`
-        INSERT INTO channels (channel_type, config, is_active)
-        VALUES ($1, $2, $3) RETURNING *
-      `, [type, JSON.stringify(config), is_active]);
+        INSERT INTO channels (channel_type, config, is_active, user_id)
+        VALUES ($1, $2, $3, $4) RETURNING *
+      `, [type, JSON.stringify(config), is_active, req.user.id]);
     }
 
     console.log(`Channel ${type} saved successfully`);
@@ -125,7 +126,7 @@ router.post('/:type/test', async (req, res) => {
 
     // If password is masked, get the real password from database
     if (type === 'email') {
-      const existing = await db.queryOne(`SELECT config FROM channels WHERE channel_type = 'email'`);
+      const existing = await db.queryOne(`SELECT config FROM channels WHERE channel_type = 'email' AND user_id = $1`, [req.user.id]);
       if (existing) {
         // New format
         if (config.password === '********' && existing.config.password) {
@@ -164,7 +165,7 @@ router.post('/:type/test', async (req, res) => {
 router.delete('/:type', async (req, res) => {
   try {
     const { type } = req.params;
-    await db.query(`UPDATE channels SET is_active = false WHERE channel_type = $1`, [type]);
+    await db.query(`UPDATE channels SET is_active = false WHERE channel_type = $1 AND user_id = $2`, [type, req.user.id]);
     console.log(`Channel ${type} disabled`);
     res.json({ success: true, message: `Channel ${type} disabled` });
   } catch (error) {

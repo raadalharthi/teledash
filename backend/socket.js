@@ -2,6 +2,7 @@
 // Replaces Supabase Realtime
 
 const { Server } = require('socket.io');
+const { verifyToken } = require('./auth');
 
 let io = null;
 
@@ -13,13 +14,30 @@ function setupSocket(server) {
       methods: ['GET', 'POST'],
       credentials: true
     },
-    // Ping settings for connection health
     pingTimeout: 60000,
     pingInterval: 25000
   });
 
+  // Auth middleware for socket connections
+  io.use((socket, next) => {
+    const token = socket.handshake.auth?.token;
+    if (!token) {
+      return next(new Error('Authentication required'));
+    }
+    try {
+      const user = verifyToken(token);
+      socket.user = user;
+      next();
+    } catch (err) {
+      next(new Error('Invalid token'));
+    }
+  });
+
   io.on('connection', (socket) => {
-    console.log(`Client connected: ${socket.id}`);
+    console.log(`Client connected: ${socket.id} (user: ${socket.user?.email})`);
+
+    // Auto-join user-specific room
+    socket.join(`user:${socket.user.id}`);
 
     // Join conversation room
     socket.on('join-conversation', (conversationId) => {
@@ -85,9 +103,12 @@ function emitMessageUpdated(conversationId, message) {
 // Emit conversation updated (for unread count, last message, etc.)
 function emitConversationUpdated(conversation) {
   if (io) {
-    // Send to conversations list
-    io.to('conversations-list').emit('conversation-updated', conversation);
-    // Also send to the specific conversation room
+    // Send to user room if user_id is available, otherwise broadcast to conversations-list
+    if (conversation.user_id) {
+      io.to(`user:${conversation.user_id}`).emit('conversation-updated', conversation);
+    } else {
+      io.to('conversations-list').emit('conversation-updated', conversation);
+    }
     io.to(`conversation:${conversation.id}`).emit('conversation-updated', conversation);
   }
 }
@@ -95,15 +116,23 @@ function emitConversationUpdated(conversation) {
 // Emit new conversation created
 function emitNewConversation(conversation) {
   if (io) {
-    io.to('conversations-list').emit('new-conversation', conversation);
-    console.log(`Emitted new-conversation to conversations-list`);
+    if (conversation.user_id) {
+      io.to(`user:${conversation.user_id}`).emit('new-conversation', conversation);
+    } else {
+      io.to('conversations-list').emit('new-conversation', conversation);
+    }
+    console.log(`Emitted new-conversation`);
   }
 }
 
 // Emit conversation deleted
-function emitConversationDeleted(conversationId) {
+function emitConversationDeleted(conversationId, userId) {
   if (io) {
-    io.to('conversations-list').emit('conversation-deleted', { id: conversationId });
+    if (userId) {
+      io.to(`user:${userId}`).emit('conversation-deleted', { id: conversationId });
+    } else {
+      io.to('conversations-list').emit('conversation-deleted', { id: conversationId });
+    }
   }
 }
 

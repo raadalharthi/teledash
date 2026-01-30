@@ -29,12 +29,12 @@ router.get('/', async (req, res) => {
         ) as contact
       FROM conversations c
       LEFT JOIN contacts co ON c.contact_id = co.id
-      WHERE c.is_archived = $1
+      WHERE c.is_archived = $1 AND c.user_id = $2
       ORDER BY
         c.last_message_time DESC NULLS LAST,
         c.created_at DESC
-      LIMIT $2
-    `, [isArchived, parseInt(limit)]);
+      LIMIT $3
+    `, [isArchived, req.user.id, parseInt(limit)]);
 
     res.json({
       success: true,
@@ -76,8 +76,8 @@ router.get('/:id', async (req, res) => {
         ) as contact
       FROM conversations c
       LEFT JOIN contacts co ON c.contact_id = co.id
-      WHERE c.id = $1
-    `, [id]);
+      WHERE c.id = $1 AND c.user_id = $2
+    `, [id, req.user.id]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({
@@ -111,9 +111,9 @@ router.patch('/:id/archive', async (req, res) => {
     const result = await db.query(`
       UPDATE conversations
       SET is_archived = $1, updated_at = NOW()
-      WHERE id = $2
+      WHERE id = $2 AND user_id = $3
       RETURNING *
-    `, [archived, id]);
+    `, [archived, id, req.user.id]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({
@@ -163,11 +163,11 @@ router.get('/search/:query', async (req, res) => {
         ) as contact
       FROM conversations c
       LEFT JOIN contacts co ON c.contact_id = co.id
-      WHERE c.last_message_text ILIKE $1
+      WHERE c.user_id = $2 AND (c.last_message_text ILIKE $1
          OR co.name ILIKE $1
-         OR co.email ILIKE $1
+         OR co.email ILIKE $1)
       ORDER BY c.last_message_time DESC NULLS LAST
-    `, [searchPattern]);
+    `, [searchPattern, req.user.id]);
 
     res.json({
       success: true,

@@ -8,12 +8,14 @@ const db = require('./db');
 const { setupSocket } = require('./socket');
 
 // Import routes
+const authRoutes = require('./routes/auth');
 const webhookRoutes = require('./routes/webhook');
 const messagesRoutes = require('./routes/messages');
 const conversationsRoutes = require('./routes/conversations');
 const channelsRoutes = require('./routes/channels');
 const emailWebhookRoutes = require('./routes/emailWebhook');
 const { startPolling: startImapPolling } = require('./imapPoller');
+const { authMiddleware } = require('./auth');
 
 // Initialize Express app
 const app = express();
@@ -66,15 +68,18 @@ app.get('/', (req, res) => {
   }
 });
 
-// API Routes
+// Public routes (no auth)
+app.use('/api/auth', authRoutes);
 app.use('/api', webhookRoutes);
-app.use('/api/messages', messagesRoutes);
-app.use('/api/conversations', conversationsRoutes);
-app.use('/api/channels', channelsRoutes);
 app.use('/api/email', emailWebhookRoutes);
 
-// Webhook management endpoints
-app.post('/api/webhook/set', async (req, res) => {
+// Protected routes (require auth)
+app.use('/api/messages', authMiddleware, messagesRoutes);
+app.use('/api/conversations', authMiddleware, conversationsRoutes);
+app.use('/api/channels', authMiddleware, channelsRoutes);
+
+// Webhook management endpoints (protected)
+app.post('/api/webhook/set', authMiddleware, async (req, res) => {
   try {
     const { url } = req.body;
     const webhookUrl = url || process.env.WEBHOOK_URL;
@@ -108,7 +113,7 @@ app.post('/api/webhook/set', async (req, res) => {
   }
 });
 
-app.post('/api/webhook/delete', async (req, res) => {
+app.post('/api/webhook/delete', authMiddleware, async (req, res) => {
   try {
     const success = await telegram.deleteWebhook();
 

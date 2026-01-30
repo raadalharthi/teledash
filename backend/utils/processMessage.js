@@ -6,13 +6,13 @@ const { emitNewMessage, emitConversationUpdated, emitNewConversation } = require
  * @param {object} from - Telegram user object
  * @returns {object} Contact record
  */
-async function findOrCreateContact(from) {
+async function findOrCreateContact(from, userId) {
   const telegramId = from.id.toString();
 
   // Try to find existing contact
   const existingContact = await db.queryOne(
-    'SELECT * FROM contacts WHERE telegram_id = $1',
-    [telegramId]
+    'SELECT * FROM contacts WHERE telegram_id = $1 AND user_id = $2',
+    [telegramId, userId]
   );
 
   if (existingContact) {
@@ -25,10 +25,10 @@ async function findOrCreateContact(from) {
     .join(' ') || from.username || `User ${telegramId}`;
 
   const newContact = await db.queryOne(
-    `INSERT INTO contacts (telegram_id, name, tags)
-     VALUES ($1, $2, $3)
+    `INSERT INTO contacts (telegram_id, name, tags, user_id)
+     VALUES ($1, $2, $3, $4)
      RETURNING *`,
-    [telegramId, contactName, '{}']
+    [telegramId, contactName, '{}', userId]
   );
 
   if (!newContact) {
@@ -46,12 +46,12 @@ async function findOrCreateContact(from) {
  * @param {string} contactId - UUID of the contact
  * @returns {object} Conversation record with isNew flag
  */
-async function findOrCreateConversation(channelType, channelChatId, contactId) {
+async function findOrCreateConversation(channelType, channelChatId, contactId, userId) {
   // Try to find existing conversation
   const existingConv = await db.queryOne(
     `SELECT * FROM conversations
-     WHERE channel_type = $1 AND channel_chat_id = $2`,
-    [channelType, channelChatId.toString()]
+     WHERE channel_type = $1 AND channel_chat_id = $2 AND user_id = $3`,
+    [channelType, channelChatId.toString(), userId]
   );
 
   if (existingConv) {
@@ -60,10 +60,10 @@ async function findOrCreateConversation(channelType, channelChatId, contactId) {
 
   // Create new conversation
   const newConv = await db.queryOne(
-    `INSERT INTO conversations (channel_type, channel_chat_id, contact_id, unread_count)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO conversations (channel_type, channel_chat_id, contact_id, unread_count, user_id)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING *`,
-    [channelType, channelChatId.toString(), contactId, 0]
+    [channelType, channelChatId.toString(), contactId, 0, userId]
   );
 
   if (!newConv) {
@@ -82,14 +82,21 @@ async function processIncomingMessage(message) {
   try {
     console.log('Processing incoming message from:', message.from.username || message.from.id);
 
+    // 0. Resolve user_id from the telegram channel
+    const channel = await db.queryOne(
+      `SELECT user_id FROM channels WHERE channel_type = 'telegram' AND is_active = true LIMIT 1`
+    );
+    const userId = channel?.user_id || null;
+
     // 1. Find or create contact
-    const contact = await findOrCreateContact(message.from);
+    const contact = await findOrCreateContact(message.from, userId);
 
     // 2. Find or create conversation
     const { conversation, isNew } = await findOrCreateConversation(
       'telegram',
       message.chat.id,
-      contact.id
+      contact.id,
+      userId
     );
 
     // 3. Determine message type and content

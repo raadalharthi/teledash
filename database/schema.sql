@@ -73,18 +73,19 @@ CREATE TABLE channels (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Optional: Users table for admin authentication (if needed)
--- Uncomment if you want multi-user admin dashboard
-/*
-CREATE TABLE admin_users (
+-- Users table for authentication
+CREATE TABLE users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
   name VARCHAR(255),
-  role VARCHAR(50) DEFAULT 'admin', -- 'admin', 'agent', 'viewer'
+  role VARCHAR(50) DEFAULT 'owner',
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
-*/
+
+CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Function to update updated_at timestamp automatically
 CREATE OR REPLACE FUNCTION update_updated_at_column()

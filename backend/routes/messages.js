@@ -29,12 +29,12 @@ router.post('/send', async (req, res) => {
       });
     }
 
-    // Get conversation details
+    // Get conversation details (scoped to user)
     const convResult = await db.queryOne(`
       SELECT channel_type, channel_chat_id
       FROM conversations
-      WHERE id = $1
-    `, [conversation_id]);
+      WHERE id = $1 AND user_id = $2
+    `, [conversation_id, req.user.id]);
 
     if (!convResult) {
       return res.status(404).json({
@@ -163,6 +163,15 @@ router.get('/:conversation_id', async (req, res) => {
     const { conversation_id } = req.params;
     const { limit = 50, offset = 0 } = req.query;
 
+    // Verify conversation belongs to user
+    const conv = await db.queryOne(
+      'SELECT id FROM conversations WHERE id = $1 AND user_id = $2',
+      [conversation_id, req.user.id]
+    );
+    if (!conv) {
+      return res.status(404).json({ success: false, error: 'Conversation not found' });
+    }
+
     const result = await db.query(`
       SELECT *
       FROM messages
@@ -193,13 +202,13 @@ router.patch('/mark-read/:conversation_id', async (req, res) => {
   try {
     const { conversation_id } = req.params;
 
-    // Reset unread count
+    // Reset unread count (scoped to user)
     const result = await db.queryOne(`
       UPDATE conversations
       SET unread_count = 0
-      WHERE id = $1
+      WHERE id = $1 AND user_id = $2
       RETURNING *
-    `, [conversation_id]);
+    `, [conversation_id, req.user.id]);
 
     // Emit real-time update
     if (result) {
