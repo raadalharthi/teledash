@@ -189,19 +189,28 @@ async function pollInbox() {
       `SELECT config, is_active FROM channels WHERE channel_type = 'email' LIMIT 1`
     );
 
-    if (!channel || !channel.is_active) {
+    if (!channel) {
+      console.log('IMAP: no email channel found in database');
+      isPolling = false;
+      return;
+    }
+    if (!channel.is_active) {
+      console.log('IMAP: email channel is disabled');
       isPolling = false;
       return;
     }
 
     const config = channel.config;
+    console.log('IMAP: email config keys:', Object.keys(config));
     if (!config.email && !config.smtp?.user) {
+      console.log('IMAP: no email address configured');
       isPolling = false;
       return;
     }
 
     const { imap } = resolveEmailConfig(config);
     if (!imap) {
+      console.log('IMAP: could not resolve IMAP settings for', config.email);
       isPolling = false;
       return;
     }
