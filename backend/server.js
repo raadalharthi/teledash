@@ -40,7 +40,7 @@ app.use((req, res, next) => {
 
 // Serve static files from frontend build (production)
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../frontend/dist')));
+  app.use(express.static(path.join(__dirname, '../frontend/build')));
 }
 
 // Health check endpoint
@@ -54,7 +54,7 @@ app.get('/api/health', (req, res) => {
 
 app.get('/', (req, res) => {
   if (process.env.NODE_ENV === 'production') {
-    res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
+    res.sendFile(path.join(__dirname, '../frontend/build/index.html'));
   } else {
     res.json({
       status: 'ok',
@@ -133,7 +133,7 @@ app.post('/api/webhook/delete', async (req, res) => {
 // Serve frontend for all other routes in production
 if (process.env.NODE_ENV === 'production') {
   app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
+    res.sendFile(path.join(__dirname, '../frontend/build/index.html'));
   });
 }
 
