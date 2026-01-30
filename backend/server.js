@@ -13,6 +13,7 @@ const messagesRoutes = require('./routes/messages');
 const conversationsRoutes = require('./routes/conversations');
 const channelsRoutes = require('./routes/channels');
 const emailWebhookRoutes = require('./routes/emailWebhook');
+const { startPolling: startImapPolling } = require('./imapPoller');
 
 // Initialize Express app
 const app = express();
@@ -186,6 +187,9 @@ async function startServer() {
     console.log(`   POST /api/channels/:type - Update channel settings`);
     console.log(`   POST /api/webhook/set - Set Telegram webhook`);
     console.log('');
+
+    // Start IMAP email polling
+    startImapPolling();
   });
 }
 
