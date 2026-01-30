@@ -4,7 +4,7 @@
 import { io, Socket } from 'socket.io-client';
 import { getToken } from './api';
 
-const SOCKET_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const SOCKET_URL = process.env.REACT_APP_API_URL ?? '';
 
 let socket: Socket | null = null;
 

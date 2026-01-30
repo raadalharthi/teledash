@@ -1,7 +1,7 @@
 // REST API Client for TeleDash
 // Replaces Supabase client for data fetching
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const API_URL = process.env.REACT_APP_API_URL ?? '';
 
 interface ApiResponse<T> {
   success: boolean;
