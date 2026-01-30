@@ -83,8 +83,9 @@ async function processEmail(msg, emailConfig) {
     const messageId = msg.envelope?.messageId || msg.uid?.toString();
 
     // Check if we already processed this message
+    // Use sender_id field to store email messageId for dedup (telegram_message_id is integer, can't hold email IDs)
     const existing = await db.queryOne(
-      `SELECT id FROM messages WHERE telegram_message_id = $1::text AND conversation_id IN (
+      `SELECT id FROM messages WHERE sender_id = $1 AND sender_type = 'user' AND conversation_id IN (
         SELECT id FROM conversations WHERE channel_type = 'email'
       )`,
       [messageId]
@@ -128,16 +129,15 @@ async function processEmail(msg, emailConfig) {
     const contact = await findOrCreateEmailContact(fromEmail, fromName);
     const { conversation, isNew } = await findOrCreateEmailConversation(fromEmail, contact.id);
 
-    // Store message
+    // Store message (use sender_id for email messageId dedup, not telegram_message_id which is integer)
     const newMessage = await db.queryOne(
-      `INSERT INTO messages (conversation_id, sender_type, sender_id, text, telegram_message_id, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      `INSERT INTO messages (conversation_id, sender_type, sender_id, text, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
       [
         conversation.id,
         'user',
-        fromEmail,
-        displayText,
         messageId,
+        displayText,
         'sent',
         msg.envelope?.date ? new Date(msg.envelope.date).toISOString() : new Date().toISOString()
       ]
