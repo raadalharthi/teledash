@@ -79,21 +79,20 @@ router.post('/send', async (req, res) => {
         });
       }
     } else if (convResult.channel_type === 'email') {
-      // Get last message to get subject for reply
+      // Try to extract subject from last incoming message text (format: [Subject] body)
       const lastMessage = await db.queryOne(`
-        SELECT email_subject
-        FROM messages
+        SELECT text FROM messages
         WHERE conversation_id = $1 AND sender_type = 'user'
-        ORDER BY created_at DESC
-        LIMIT 1
+        ORDER BY created_at DESC LIMIT 1
       `, [conversation_id]);
 
-      // Build subject line (Re: original subject)
       let subject = 'Message from TeleDash';
-      if (lastMessage?.email_subject) {
-        subject = lastMessage.email_subject.startsWith('Re:')
-          ? lastMessage.email_subject
-          : `Re: ${lastMessage.email_subject}`;
+      if (lastMessage?.text) {
+        const subjectMatch = lastMessage.text.match(/^\[(.+?)\]/);
+        if (subjectMatch) {
+          const origSubject = subjectMatch[1];
+          subject = origSubject.startsWith('Re:') ? origSubject : `Re: ${origSubject}`;
+        }
       }
 
       // Send email
@@ -104,23 +103,29 @@ router.post('/send', async (req, res) => {
       );
 
       if (result.success) {
-        // Store message in database
+        // Store message
         const msgResult = await db.queryOne(`
-          INSERT INTO messages (conversation_id, sender_type, text, email_subject, email_to, status)
-          VALUES ($1, 'admin', $2, $3, $4, 'sent')
+          INSERT INTO messages (conversation_id, sender_type, text, status)
+          VALUES ($1, 'admin', $2, 'sent')
           RETURNING *
-        `, [conversation_id, text, subject, convResult.channel_chat_id]);
+        `, [conversation_id, text]);
 
         // Update conversation
         await db.query(`
           UPDATE conversations
-          SET last_message_text = $1, last_message_time = NOW()
+          SET last_message_text = $1, last_message_time = NOW(), updated_at = NOW()
           WHERE id = $2
-        `, [text.substring(0, 100), conversation_id]);
+        `, [text.substring(0, 200), conversation_id]);
 
         // Emit real-time updates
         if (msgResult) {
           emitNewMessage(conversation_id, msgResult);
+
+          const fullConv = await db.queryOne(`
+            SELECT c.*, json_build_object('id', co.id, 'name', co.name, 'email', co.email) as contact
+            FROM conversations c LEFT JOIN contacts co ON c.contact_id = co.id WHERE c.id = $1
+          `, [conversation_id]);
+          if (fullConv) emitConversationUpdated(fullConv);
         }
 
         return res.json({
