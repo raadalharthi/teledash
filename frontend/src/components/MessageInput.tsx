@@ -10,9 +10,11 @@ interface MessageInputProps {
   onCancelEdit?: () => void;
   conversationId?: string;
   replyToMessageId?: string;
+  externalFile?: File | null;
+  onExternalFileConsumed?: () => void;
 }
 
-export function MessageInput({ onSendMessage, onSendTyping, editingMessage, onEditMessage, onCancelEdit, conversationId, replyToMessageId }: MessageInputProps) {
+export function MessageInput({ onSendMessage, onSendTyping, editingMessage, onEditMessage, onCancelEdit, conversationId, replyToMessageId, externalFile, onExternalFileConsumed }: MessageInputProps) {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -24,6 +26,14 @@ export function MessageInput({ onSendMessage, onSendTyping, editingMessage, onEd
       setText(editingMessage.text);
     }
   }, [editingMessage]);
+
+  // Handle file dropped from ChatWindow drag & drop
+  useEffect(() => {
+    if (externalFile) {
+      setSelectedFile(externalFile);
+      onExternalFileConsumed?.();
+    }
+  }, [externalFile, onExternalFileConsumed]);
 
   // Generate preview for images
   useEffect(() => {

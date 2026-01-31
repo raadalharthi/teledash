@@ -78,6 +78,9 @@ export interface Message {
   reply_markup?: any;
   reactions?: MessageReaction[];
   callback_data?: any[];
+  email_subject?: string;
+  email_from?: string;
+  email_to?: string;
   created_at: string;
   updated_at: string;
 }
@@ -122,6 +125,41 @@ export interface ConnectionTestResult {
     first_name: string;
     id: number;
   };
+}
+
+// Ticket types
+
+export interface Ticket {
+  id: string;
+  ticket_number: number;
+  title: string;
+  description?: string;
+  status: 'open' | 'in_progress' | 'resolved' | 'closed';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  conversation_id?: string;
+  contact_id?: string;
+  contact?: Contact;
+  assigned_to?: string;
+  assignee?: { id: string; name: string; email: string };
+  created_by?: string;
+  creator?: { id: string; name: string; email: string };
+  sla_deadline?: string;
+  first_response_at?: string;
+  resolved_at?: string;
+  closed_at?: string;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TicketComment {
+  id: string;
+  ticket_id: string;
+  user_id: string;
+  author?: { id: string; name: string; email: string };
+  text: string;
+  is_internal: boolean;
+  created_at: string;
 }
 
 // API Response types

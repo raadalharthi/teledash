@@ -204,4 +204,48 @@ export const authApi = {
   getMe: () => request<any>('/api/auth/me'),
 };
 
+// Tickets API
+export const ticketsApi = {
+  getAll: (filters?: { status?: string; priority?: string; search?: string; limit?: number; offset?: number }) => {
+    const params = new URLSearchParams();
+    if (filters?.status) params.set('status', filters.status);
+    if (filters?.priority) params.set('priority', filters.priority);
+    if (filters?.search) params.set('search', filters.search);
+    if (filters?.limit) params.set('limit', String(filters.limit));
+    if (filters?.offset) params.set('offset', String(filters.offset));
+    const qs = params.toString();
+    return request<any>(`/api/tickets${qs ? `?${qs}` : ''}`);
+  },
+
+  getById: (id: string) => request<any>(`/api/tickets/${id}`),
+
+  create: (data: { title: string; description?: string; priority?: string; conversation_id?: string; contact_id?: string; tags?: string[] }) =>
+    request<any>('/api/tickets', { method: 'POST', body: JSON.stringify(data) }),
+
+  update: (id: string, data: { status?: string; priority?: string; assigned_to?: string; title?: string; description?: string; tags?: string[] }) =>
+    request<any>(`/api/tickets/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  addComment: (id: string, text: string, isInternal?: boolean) =>
+    request<any>(`/api/tickets/${id}/comments`, { method: 'POST', body: JSON.stringify({ text, is_internal: isInternal }) }),
+
+  delete: (id: string) =>
+    request<any>(`/api/tickets/${id}`, { method: 'DELETE' }),
+};
+
+// Organizations API
+export const organizationsApi = {
+  getCurrent: () => request<any>('/api/organizations/current'),
+  create: (name: string) => request<any>('/api/organizations', { method: 'POST', body: JSON.stringify({ name }) }),
+  getMembers: () => request<any>('/api/organizations/members'),
+  invite: (email: string, role?: string) => request<any>('/api/organizations/invite', { method: 'POST', body: JSON.stringify({ email, role }) }),
+  acceptInvite: (token: string) => request<any>('/api/organizations/accept-invite', { method: 'POST', body: JSON.stringify({ token }) }),
+  updateMember: (userId: string, data: { role?: string; is_active?: boolean }) =>
+    request<any>(`/api/organizations/members/${userId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+};
+
+export const analyticsApi = {
+  getOverview: () => request<any>('/api/analytics/overview'),
+  getActivity: (limit = 50) => request<any>(`/api/analytics/activity?limit=${limit}`),
+};
+
 export { API_URL };

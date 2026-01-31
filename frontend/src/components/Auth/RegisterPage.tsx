@@ -1,18 +1,19 @@
 import React, { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { authApi, setToken } from '../../lib/api';
 import { User } from '../../types';
 
 interface RegisterPageProps {
   onRegister: (user: User, token: string) => void;
-  onSwitchToLogin: () => void;
 }
 
-export default function RegisterPage({ onRegister, onSwitchToLogin }: RegisterPageProps) {
+export default function RegisterPage({ onRegister }: RegisterPageProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,6 +31,7 @@ export default function RegisterPage({ onRegister, onSwitchToLogin }: RegisterPa
     if (result.success && result.token) {
       setToken(result.token);
       onRegister(result.user, result.token);
+      navigate('/app');
     } else {
       setError(result.error || 'Registration failed');
     }
@@ -42,11 +44,13 @@ export default function RegisterPage({ onRegister, onSwitchToLogin }: RegisterPa
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-gradient-to-br from-brand-500 to-accent-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-glow">
-            <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-            </svg>
-          </div>
+          <Link to="/">
+            <div className="w-16 h-16 bg-gradient-to-br from-brand-500 to-accent-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-glow">
+              <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+            </div>
+          </Link>
           <h1 className="text-2xl font-bold text-surface-900">Create Account</h1>
           <p className="text-surface-500 mt-1">Get started with TeleDash</p>
         </div>
@@ -108,12 +112,9 @@ export default function RegisterPage({ onRegister, onSwitchToLogin }: RegisterPa
           <div className="mt-6 text-center">
             <p className="text-sm text-surface-500">
               Already have an account?{' '}
-              <button
-                onClick={onSwitchToLogin}
-                className="text-brand-500 hover:text-brand-600 font-medium"
-              >
+              <Link to="/login" className="text-brand-500 hover:text-brand-600 font-medium">
                 Sign in
-              </button>
+              </Link>
             </p>
           </div>
         </div>

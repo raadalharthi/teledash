@@ -223,8 +223,23 @@ async function processIncomingMessage(message) {
       ]
     );
 
+    // Re-fetch with reply join for socket emit
+    const fullMessage = await db.queryOne(
+      `SELECT m.*,
+        CASE WHEN m.reply_to_message_id IS NOT NULL THEN
+          json_build_object(
+            'id', rm.id, 'text', rm.text, 'sender_type', rm.sender_type,
+            'media_type', rm.media_type, 'created_at', rm.created_at
+          )
+        ELSE NULL END as reply_to_message
+       FROM messages m
+       LEFT JOIN messages rm ON m.reply_to_message_id = rm.id
+       WHERE m.id = $1`,
+      [newMessage.id]
+    );
+
     // Emit real-time events
-    emitNewMessage(conversation.id, newMessage);
+    emitNewMessage(conversation.id, fullMessage || newMessage);
 
     const fullConversation = await db.queryOne(
       `SELECT c.*,
@@ -382,6 +397,21 @@ async function storeOutgoingMessage(conversationId, text, telegramMessageId, ext
       throw new Error('Failed to store outgoing message');
     }
 
+    // Re-fetch with reply join so the socket emit includes reply_to_message
+    const fullMessage = await db.queryOne(
+      `SELECT m.*,
+        CASE WHEN m.reply_to_message_id IS NOT NULL THEN
+          json_build_object(
+            'id', rm.id, 'text', rm.text, 'sender_type', rm.sender_type,
+            'media_type', rm.media_type, 'created_at', rm.created_at
+          )
+        ELSE NULL END as reply_to_message
+       FROM messages m
+       LEFT JOIN messages rm ON m.reply_to_message_id = rm.id
+       WHERE m.id = $1`,
+      [newMessage.id]
+    );
+
     await db.queryOne(
       `UPDATE conversations
        SET last_message_text = $1, last_message_time = NOW(), updated_at = NOW()
@@ -389,7 +419,7 @@ async function storeOutgoingMessage(conversationId, text, telegramMessageId, ext
       [text || `(${mediaType})`, conversationId]
     );
 
-    emitNewMessage(conversationId, newMessage);
+    emitNewMessage(conversationId, fullMessage || newMessage);
 
     const fullConversation = await db.queryOne(
       `SELECT c.*,

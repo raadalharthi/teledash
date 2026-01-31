@@ -179,35 +179,40 @@ async function processEmail(msg, emailConfig, userId) {
       bodyText = bodyText.substring(0, 5000) + '...';
     }
 
-    const displayText = subject !== '(No subject)'
-      ? `[${subject}] ${bodyText}`
-      : bodyText || '(Empty email)';
+    const displayText = bodyText || '(Empty email)';
 
     // Find or create contact and conversation
     const contact = await findOrCreateEmailContact(fromEmail, fromName, userId);
     const { conversation, isNew } = await findOrCreateEmailConversation(fromEmail, contact.id, userId);
 
-    // Store message (use sender_id for email messageId dedup, not telegram_message_id which is integer)
+    // Store message with email_subject separate from text body
     const newMessage = await db.queryOne(
-      `INSERT INTO messages (conversation_id, sender_type, sender_id, text, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      `INSERT INTO messages (conversation_id, sender_type, sender_id, text, email_subject, email_from, email_to, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
       [
         conversation.id,
         'user',
         messageId,
         displayText,
+        subject !== '(No subject)' ? subject : null,
+        fromEmail,
+        config.email,
         'sent',
         msg.envelope?.date ? new Date(msg.envelope.date).toISOString() : new Date().toISOString()
       ]
     );
 
-    // Update conversation
+    // Update conversation - show subject in preview for email
+    const previewText = subject !== '(No subject)'
+      ? `${subject}: ${displayText}`.substring(0, 200)
+      : displayText.substring(0, 200);
+
     const updatedConv = await db.queryOne(
       `UPDATE conversations
        SET last_message_text = $1, last_message_time = $2, unread_count = unread_count + 1, updated_at = NOW()
        WHERE id = $3 RETURNING *`,
       [
-        displayText.substring(0, 200),
+        previewText,
         msg.envelope?.date ? new Date(msg.envelope.date).toISOString() : new Date().toISOString(),
         conversation.id
       ]

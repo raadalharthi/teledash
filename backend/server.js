@@ -77,6 +77,9 @@ app.use('/api/email', emailWebhookRoutes);
 app.use('/api/messages', authMiddleware, messagesRoutes);
 app.use('/api/conversations', authMiddleware, conversationsRoutes);
 app.use('/api/channels', authMiddleware, channelsRoutes);
+app.use('/api/tickets', authMiddleware, require('./routes/tickets'));
+app.use('/api/organizations', authMiddleware, require('./routes/organizations'));
+app.use('/api/analytics', authMiddleware, require('./routes/analytics'));
 
 // Webhook management endpoints (protected)
 app.post('/api/webhook/set', authMiddleware, async (req, res) => {

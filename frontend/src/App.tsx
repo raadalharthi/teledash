@@ -1,28 +1,26 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { ConversationList } from './components/ConversationList';
 import { ChatWindow } from './components/ChatWindow';
 import { Settings } from './components/Settings/Settings';
+import { TicketList } from './components/Tickets/TicketList';
+import { TeamManagement } from './components/Team/TeamManagement';
 import LoginPage from './components/Auth/LoginPage';
 import RegisterPage from './components/Auth/RegisterPage';
+import LandingPage from './components/LandingPage';
+import { AdminDashboard } from './components/Dashboard/AdminDashboard';
 import { useConversations } from './hooks/useConversations';
 import { useMessages } from './hooks/useMessages';
 import { Conversation, User } from './types';
 import { authApi, getToken, clearToken } from './lib/api';
 import { reconnectSocket, disconnectSocket } from './lib/socket';
 
-type ViewType = 'chat' | 'settings';
-type AuthView = 'login' | 'register';
+type ViewType = 'chat' | 'tickets' | 'team' | 'admin' | 'settings';
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [authView, setAuthView] = useState<AuthView>('login');
   const [authLoading, setAuthLoading] = useState(true);
 
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
-  const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
-  const [currentView, setCurrentView] = useState<ViewType>('chat');
-
-  // Check existing token on mount
   useEffect(() => {
     const token = getToken();
     if (token) {
@@ -40,7 +38,7 @@ function App() {
     }
   }, []);
 
-  const handleLogin = useCallback((u: User, _token: string) => {
+  const handleAuth = useCallback((u: User, _token: string) => {
     setUser(u);
     reconnectSocket();
   }, []);
@@ -49,12 +47,8 @@ function App() {
     clearToken();
     setUser(null);
     disconnectSocket();
-    setActiveConversationId(null);
-    setActiveConversation(null);
-    setCurrentView('chat');
   }, []);
 
-  // Show loading spinner while checking auth
   if (authLoading) {
     return (
       <div className="min-h-screen bg-surface-50 flex items-center justify-center">
@@ -63,58 +57,28 @@ function App() {
     );
   }
 
-  // Show auth pages if not logged in
-  if (!user) {
-    if (authView === 'register') {
-      return (
-        <RegisterPage
-          onRegister={handleLogin}
-          onSwitchToLogin={() => setAuthView('login')}
-        />
-      );
-    }
-    return (
-      <LoginPage
-        onLogin={handleLogin}
-        onSwitchToRegister={() => setAuthView('register')}
-      />
-    );
-  }
-
-  // Authenticated dashboard
-  return <Dashboard
-    user={user}
-    onLogout={handleLogout}
-    activeConversationId={activeConversationId}
-    setActiveConversationId={setActiveConversationId}
-    activeConversation={activeConversation}
-    setActiveConversation={setActiveConversation}
-    currentView={currentView}
-    setCurrentView={setCurrentView}
-  />;
+  return (
+    <Routes>
+      <Route path="/" element={user ? <Navigate to="/app" replace /> : <LandingPage />} />
+      <Route path="/login" element={user ? <Navigate to="/app" replace /> : <LoginPage onLogin={handleAuth} />} />
+      <Route path="/register" element={user ? <Navigate to="/app" replace /> : <RegisterPage onRegister={handleAuth} />} />
+      <Route path="/app/*" element={user ? <Dashboard user={user} onLogout={handleLogout} /> : <Navigate to="/login" replace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
 }
 
 interface DashboardProps {
   user: User;
   onLogout: () => void;
-  activeConversationId: string | null;
-  setActiveConversationId: (id: string | null) => void;
-  activeConversation: Conversation | null;
-  setActiveConversation: (c: Conversation | null) => void;
-  currentView: ViewType;
-  setCurrentView: (v: ViewType) => void;
 }
 
-function Dashboard({
-  user,
-  onLogout,
-  activeConversationId,
-  setActiveConversationId,
-  activeConversation,
-  setActiveConversation,
-  currentView,
-  setCurrentView,
-}: DashboardProps) {
+function Dashboard({ user, onLogout }: DashboardProps) {
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
+  const [currentView, setCurrentView] = useState<ViewType>('chat');
+  const navigate = useNavigate();
+
   const {
     conversations,
     loading: conversationsLoading,
@@ -146,7 +110,7 @@ function Dashboard({
     } else {
       setActiveConversation(null);
     }
-  }, [activeConversationId, conversations, markAsRead, setActiveConversation]);
+  }, [activeConversationId, conversations, markAsRead]);
 
   const handleSelectConversation = (id: string) => {
     setActiveConversationId(id);
@@ -156,18 +120,21 @@ function Dashboard({
     await sendMessage(text, options);
   };
 
+  const handleLogout = () => {
+    onLogout();
+    navigate('/');
+  };
+
   const isConnected = convRealtimeStatus === 'connected';
 
   return (
     <div className="h-screen flex bg-surface-50">
       {/* Dark Sidebar Rail */}
       <div className="w-16 bg-sidebar flex flex-col items-center py-5 gap-1 flex-shrink-0">
-        {/* Logo */}
         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-accent flex items-center justify-center text-white font-bold text-lg mb-4 shadow-glow">
           T
         </div>
 
-        {/* Nav Icons */}
         <button
           onClick={() => setCurrentView('chat')}
           className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-200 ${
@@ -179,6 +146,52 @@ function Dashboard({
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+        </button>
+
+        <button
+          onClick={() => setCurrentView('tickets')}
+          className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-200 ${
+            currentView === 'tickets'
+              ? 'bg-brand-500 text-white shadow-glow'
+              : 'text-surface-400 hover:text-white hover:bg-sidebar-hover'
+          }`}
+          title="Tickets"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+            <line x1="10" y1="9" x2="8" y2="9"/>
+          </svg>
+        </button>
+
+        <button
+          onClick={() => setCurrentView('team')}
+          className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-200 ${
+            currentView === 'team'
+              ? 'bg-brand-500 text-white shadow-glow'
+              : 'text-surface-400 hover:text-white hover:bg-sidebar-hover'
+          }`}
+          title="Team"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+        </button>
+
+        <button
+          onClick={() => setCurrentView('admin')}
+          className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-200 ${
+            currentView === 'admin'
+              ? 'bg-brand-500 text-white shadow-glow'
+              : 'text-surface-400 hover:text-white hover:bg-sidebar-hover'
+          }`}
+          title="Dashboard"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
           </svg>
         </button>
 
@@ -197,10 +210,8 @@ function Dashboard({
           </svg>
         </button>
 
-        {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Connection Status */}
         <div className="flex flex-col items-center gap-3">
           <div
             className={`w-2.5 h-2.5 rounded-full transition-colors ${
@@ -208,10 +219,8 @@ function Dashboard({
             }`}
             title={isConnected ? 'Connected' : 'Connecting...'}
           />
-
-          {/* Logout Button */}
           <button
-            onClick={onLogout}
+            onClick={handleLogout}
             className="w-10 h-10 rounded-xl flex items-center justify-center text-surface-400 hover:text-red-400 hover:bg-sidebar-hover transition-all duration-200"
             title={`Logout (${user.email})`}
           >
@@ -248,6 +257,12 @@ function Dashboard({
             onSetEditingMessage={setEditingMessage}
           />
         </div>
+      ) : currentView === 'tickets' ? (
+        <TicketList />
+      ) : currentView === 'team' ? (
+        <TeamManagement />
+      ) : currentView === 'admin' ? (
+        <AdminDashboard />
       ) : (
         <div className="flex-1 overflow-auto">
           <Settings />

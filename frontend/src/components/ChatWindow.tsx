@@ -39,6 +39,9 @@ export function ChatWindow({
   const [activeMessageMenu, setActiveMessageMenu] = useState<string | null>(null);
   const [showReactionPicker, setShowReactionPicker] = useState<string | null>(null);
   const [mediaUrls, setMediaUrls] = useState<Record<string, string>>({});
+  const [isDragging, setIsDragging] = useState(false);
+  const [droppedFile, setDroppedFile] = useState<File | null>(null);
+  const dragCounterRef = React.useRef(0);
 
   const formatMessageTime = (timestamp: string) => {
     const date = new Date(timestamp);
@@ -299,7 +302,22 @@ export function ChatWindow({
   return (
     <div className="flex-1 flex bg-surface-50">
       {/* Main chat area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 relative"
+        onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); dragCounterRef.current++; setIsDragging(true); }}
+        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); dragCounterRef.current--; if (dragCounterRef.current === 0) setIsDragging(false); }}
+        onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dragCounterRef.current = 0; setIsDragging(false); const file = e.dataTransfer.files?.[0]; if (file) setDroppedFile(file); }}
+      >
+        {/* Drag overlay */}
+        {isDragging && (
+          <div className="absolute inset-0 bg-brand-500/10 border-2 border-dashed border-brand-500 rounded-xl z-30 flex items-center justify-center backdrop-blur-sm">
+            <div className="text-center">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="1.5" className="mx-auto mb-3"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <p className="text-brand-600 font-semibold text-lg">Drop file here</p>
+              <p className="text-brand-400 text-sm mt-1">Photo, video, document, or audio</p>
+            </div>
+          </div>
+        )}
         {/* Header */}
         <div className="bg-white border-b border-surface-200 px-6 py-4 flex items-center gap-4">
           <div className="relative cursor-pointer" onClick={() => {
@@ -423,15 +441,22 @@ export function ChatWindow({
                       {/* Reply preview */}
                       {message.reply_to_message && renderReplyPreview(message.reply_to_message)}
 
-                      {/* Text */}
+                      {/* Email subject header */}
+                      {message.email_subject && (
+                        <p className={`text-xs font-bold mb-1 ${isOutgoing ? 'text-brand-100' : 'text-surface-700'}`}>
+                          {message.email_subject}
+                        </p>
+                      )}
+
+                      {/* Media first, then caption below (like Telegram) */}
+                      {renderMediaMessage(message, isOutgoing)}
+
+                      {/* Text / Caption */}
                       {message.text && message.media_type !== 'sticker' && (
                         <p className="whitespace-pre-wrap break-words text-[14px] leading-relaxed">
                           {message.text}
                         </p>
                       )}
-
-                      {/* Media */}
-                      {renderMediaMessage(message, isOutgoing)}
 
                       {/* Inline keyboard */}
                       {renderInlineKeyboard(message)}
@@ -486,6 +511,8 @@ export function ChatWindow({
           onCancelEdit={() => onSetEditingMessage?.(null)}
           conversationId={conversation?.id}
           replyToMessageId={replyTo?.id}
+          externalFile={droppedFile}
+          onExternalFileConsumed={() => setDroppedFile(null)}
         />
       </div>
 
