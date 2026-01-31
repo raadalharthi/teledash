@@ -484,6 +484,8 @@ export function ChatWindow({
           editingMessage={editingMessage}
           onEditMessage={onEditMessage}
           onCancelEdit={() => onSetEditingMessage?.(null)}
+          conversationId={conversation?.id}
+          replyToMessageId={replyTo?.id}
         />
       </div>
 

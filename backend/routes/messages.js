@@ -1,10 +1,113 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const db = require('../db');
 const telegram = require('../telegram');
 const email = require('../email');
 const { storeOutgoingMessage } = require('../utils/processMessage');
 const { emitNewMessage, emitMessageUpdated, emitConversationUpdated, emitMessageDeleted, emitTypingIndicator } = require('../socket');
+
+// Configure multer for file uploads
+const uploadDir = path.join(__dirname, '..', 'uploads');
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+const upload = multer({ dest: uploadDir, limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB
+
+/**
+ * POST /api/messages/upload
+ * Upload a file and send it to a conversation
+ */
+router.post('/upload', upload.single('file'), async (req, res) => {
+  try {
+    const { conversation_id, caption, reply_to_message_id } = req.body;
+    const file = req.file;
+
+    if (!file || !conversation_id) {
+      if (file) fs.unlinkSync(file.path);
+      return res.status(400).json({ success: false, error: 'file and conversation_id required' });
+    }
+
+    const conv = await db.queryOne(
+      'SELECT channel_type, channel_chat_id FROM conversations WHERE id = $1 AND user_id = $2',
+      [conversation_id, req.user.id]
+    );
+    if (!conv) {
+      fs.unlinkSync(file.path);
+      return res.status(404).json({ success: false, error: 'Conversation not found' });
+    }
+
+    // Determine media type from MIME
+    let mediaType = 'document';
+    if (file.mimetype.startsWith('image/')) mediaType = 'photo';
+    else if (file.mimetype.startsWith('video/')) mediaType = 'video';
+    else if (file.mimetype.startsWith('audio/') || file.mimetype === 'audio/ogg') mediaType = 'audio';
+
+    // Resolve reply
+    let replyToTelegramId = null;
+    if (reply_to_message_id) {
+      const replyMsg = await db.queryOne('SELECT telegram_message_id FROM messages WHERE id = $1', [reply_to_message_id]);
+      if (replyMsg) replyToTelegramId = replyMsg.telegram_message_id;
+    }
+
+    const sendOptions = {};
+    if (caption) sendOptions.caption = caption;
+    if (replyToTelegramId) {
+      sendOptions.reply_to_message_id = replyToTelegramId;
+      sendOptions.reply_parameters = { message_id: replyToTelegramId };
+    }
+
+    let result;
+    const filePath = file.path;
+
+    if (conv.channel_type === 'telegram') {
+      const fileStream = fs.createReadStream(filePath);
+      if (mediaType === 'photo') {
+        result = await telegram.sendPhoto(conv.channel_chat_id, fileStream, sendOptions);
+      } else if (mediaType === 'video') {
+        result = await telegram.sendVideo(conv.channel_chat_id, fileStream, sendOptions);
+      } else if (mediaType === 'audio') {
+        result = await telegram.sendAudio(conv.channel_chat_id, fileStream, sendOptions);
+      } else {
+        // For documents, node-telegram-bot-api needs fileOptions
+        const bot = await telegram.getBot();
+        const msg = await bot.sendDocument(conv.channel_chat_id, fileStream, sendOptions, { filename: file.originalname });
+        result = { success: true, message: msg };
+      }
+
+      // Clean up uploaded file
+      fs.unlinkSync(filePath);
+
+      if (result && result.success) {
+        // Get file_id from the sent message
+        let fileId = null;
+        const sentMsg = result.message;
+        if (sentMsg.photo) fileId = sentMsg.photo[sentMsg.photo.length - 1].file_id;
+        else if (sentMsg.video) fileId = sentMsg.video.file_id;
+        else if (sentMsg.audio) fileId = sentMsg.audio.file_id;
+        else if (sentMsg.document) fileId = sentMsg.document.file_id;
+
+        await storeOutgoingMessage(
+          conversation_id,
+          caption || `(${mediaType})`,
+          sentMsg.message_id,
+          { mediaType, mediaUrl: fileId, fileName: file.originalname, fileSize: file.size, mimeType: file.mimetype, replyToMessageId: reply_to_message_id }
+        );
+
+        return res.json({ success: true, message: 'File sent', telegram_message_id: sentMsg.message_id });
+      } else {
+        return res.status(500).json({ success: false, error: result?.error || 'Failed to send' });
+      }
+    } else {
+      fs.unlinkSync(filePath);
+      return res.status(400).json({ success: false, error: 'File upload only supported for Telegram' });
+    }
+  } catch (error) {
+    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    console.error('Error uploading file:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 /**
  * POST /api/messages/send
@@ -43,7 +146,9 @@ router.post('/send', async (req, res) => {
     let result;
     const sendOptions = {};
     if (replyToTelegramId) {
+      // Support both old and new Telegram Bot API format
       sendOptions.reply_to_message_id = replyToTelegramId;
+      sendOptions.reply_parameters = { message_id: replyToTelegramId };
     }
 
     if (convResult.channel_type === 'telegram') {

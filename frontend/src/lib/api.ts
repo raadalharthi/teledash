@@ -125,6 +125,28 @@ export const messagesApi = {
     request<any>(`/api/messages/mark-read/${conversationId}`, {
       method: 'PATCH',
     }),
+
+  uploadFile: async (conversationId: string, file: File, caption?: string, replyToMessageId?: string) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('conversation_id', conversationId);
+      if (caption) formData.append('caption', caption);
+      if (replyToMessageId) formData.append('reply_to_message_id', replyToMessageId);
+
+      const token = getToken();
+      const response = await fetch(`${API_URL}/api/messages/upload`, {
+        method: 'POST',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: formData,
+      });
+      return await response.json();
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  },
 };
 
 // Channels API (Settings)
