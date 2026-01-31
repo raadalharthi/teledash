@@ -125,7 +125,15 @@ function Dashboard({
   const {
     messages,
     loading: messagesLoading,
-    sendMessage
+    sendMessage,
+    editMessage,
+    deleteMessage,
+    reactToMessage,
+    sendTyping,
+    replyTo,
+    setReplyTo,
+    editingMessage,
+    setEditingMessage,
   } = useMessages(activeConversationId);
 
   useEffect(() => {
@@ -144,8 +152,8 @@ function Dashboard({
     setActiveConversationId(id);
   };
 
-  const handleSendMessage = async (text: string) => {
-    await sendMessage(text);
+  const handleSendMessage = async (text: string, options?: { media_type?: string; media_url?: string }) => {
+    await sendMessage(text, options);
   };
 
   const isConnected = convRealtimeStatus === 'connected';
@@ -230,6 +238,14 @@ function Dashboard({
             messages={messages}
             loading={messagesLoading}
             onSendMessage={handleSendMessage}
+            onEditMessage={editMessage}
+            onDeleteMessage={deleteMessage}
+            onReactToMessage={reactToMessage}
+            onSendTyping={sendTyping}
+            replyTo={replyTo}
+            onSetReplyTo={setReplyTo}
+            editingMessage={editingMessage}
+            onSetEditingMessage={setEditingMessage}
           />
         </div>
       ) : (

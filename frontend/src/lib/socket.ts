@@ -108,6 +108,18 @@ export function onConversationDeleted(handler: (data: { id: string }) => void): 
   return () => s.off('conversation-deleted', handler);
 }
 
+export function onMessageDeleted(handler: (data: { id: string; conversation_id: string }) => void): () => void {
+  const s = getSocket();
+  s.on('message-deleted', handler);
+  return () => s.off('message-deleted', handler);
+}
+
+export function onTyping(handler: (data: { conversation_id: string; user_id: string; is_typing: boolean }) => void): () => void {
+  const s = getSocket();
+  s.on('typing', handler);
+  return () => s.off('typing', handler);
+}
+
 // Connection status
 export function isConnected(): boolean {
   return socket?.connected ?? false;

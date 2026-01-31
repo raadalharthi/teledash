@@ -136,6 +136,20 @@ function emitConversationDeleted(conversationId, userId) {
   }
 }
 
+// Emit message deleted
+function emitMessageDeleted(conversationId, messageId) {
+  if (io) {
+    io.to(`conversation:${conversationId}`).emit('message-deleted', { id: messageId, conversation_id: conversationId });
+  }
+}
+
+// Emit typing indicator
+function emitTypingIndicator(conversationId, userId, isTyping) {
+  if (io) {
+    io.to(`conversation:${conversationId}`).emit('typing', { conversation_id: conversationId, user_id: userId, is_typing: isTyping });
+  }
+}
+
 module.exports = {
   setupSocket,
   getIO,
@@ -143,5 +157,7 @@ module.exports = {
   emitMessageUpdated,
   emitConversationUpdated,
   emitNewConversation,
-  emitConversationDeleted
+  emitConversationDeleted,
+  emitMessageDeleted,
+  emitTypingIndicator
 };

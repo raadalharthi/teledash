@@ -17,6 +17,9 @@ export interface Contact {
   email?: string;
   phone?: string;
   avatar_url?: string;
+  username?: string;
+  bio?: string;
+  last_seen?: string;
   tags: string[];
   notes?: string;
   created_at: string;
@@ -37,16 +40,44 @@ export interface Conversation {
   updated_at: string;
 }
 
+export interface MessageReaction {
+  type: string;
+  emoji: string;
+  user_id: string;
+}
+
+export interface ReplyToMessage {
+  id: string;
+  text?: string;
+  sender_type: string;
+  media_type?: string;
+}
+
 export interface Message {
   id: string;
   conversation_id: string;
   sender_type: 'user' | 'bot' | 'admin';
   sender_id?: string;
   text?: string;
-  media_type?: 'photo' | 'video' | 'document' | 'voice' | 'audio' | 'sticker';
+  media_type?: 'photo' | 'video' | 'document' | 'voice' | 'audio' | 'sticker' | 'video_note';
   media_url?: string;
+  file_name?: string;
+  file_size?: number;
+  mime_type?: string;
+  duration?: number;
+  width?: number;
+  height?: number;
   status: 'sent' | 'delivered' | 'read' | 'failed';
   telegram_message_id?: number;
+  is_edited?: boolean;
+  is_deleted?: boolean;
+  edited_at?: string;
+  reply_to_message_id?: string;
+  reply_to_telegram_id?: number;
+  reply_to_message?: ReplyToMessage;
+  reply_markup?: any;
+  reactions?: MessageReaction[];
+  callback_data?: any[];
   created_at: string;
   updated_at: string;
 }
@@ -68,7 +99,6 @@ export interface EmailConfig {
   email: string;
   password: string;
   display_name?: string;
-  // Auto-detected or manually overridden
   imap?: {
     host: string;
     port: number;
@@ -79,7 +109,6 @@ export interface EmailConfig {
     port: number;
     secure: boolean;
   };
-  // Legacy fields for backwards compat
   from_name?: string;
   from_email?: string;
 }
@@ -108,6 +137,7 @@ export interface SendMessageRequest {
   text?: string;
   media_type?: string;
   media_url?: string;
+  reply_to_message_id?: string;
 }
 
 export interface SendMessageResponse {

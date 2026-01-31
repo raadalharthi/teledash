@@ -1,34 +1,37 @@
 const db = require('../db');
-const { emitNewMessage, emitConversationUpdated, emitNewConversation } = require('../socket');
+const { emitNewMessage, emitMessageUpdated, emitConversationUpdated, emitNewConversation, emitMessageDeleted, emitTypingIndicator } = require('../socket');
 
 /**
  * Find or create a contact based on Telegram user info
- * @param {object} from - Telegram user object
- * @returns {object} Contact record
  */
 async function findOrCreateContact(from, userId) {
   const telegramId = from.id.toString();
 
-  // Try to find existing contact
   const existingContact = await db.queryOne(
     'SELECT * FROM contacts WHERE telegram_id = $1 AND user_id = $2',
     [telegramId, userId]
   );
 
   if (existingContact) {
+    // Update username if changed
+    if (from.username && from.username !== existingContact.username) {
+      await db.query(
+        'UPDATE contacts SET username = $1 WHERE id = $2',
+        [from.username, existingContact.id]
+      );
+    }
     return existingContact;
   }
 
-  // Create new contact
   const contactName = [from.first_name, from.last_name]
     .filter(Boolean)
     .join(' ') || from.username || `User ${telegramId}`;
 
   const newContact = await db.queryOne(
-    `INSERT INTO contacts (telegram_id, name, tags, user_id)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO contacts (telegram_id, name, username, tags, user_id)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING *`,
-    [telegramId, contactName, '{}', userId]
+    [telegramId, contactName, from.username || null, '{}', userId]
   );
 
   if (!newContact) {
@@ -41,13 +44,8 @@ async function findOrCreateContact(from, userId) {
 
 /**
  * Find or create a conversation
- * @param {string} channelType - Type of channel (e.g., 'telegram')
- * @param {string} channelChatId - The chat ID from the channel
- * @param {string} contactId - UUID of the contact
- * @returns {object} Conversation record with isNew flag
  */
 async function findOrCreateConversation(channelType, channelChatId, contactId, userId) {
-  // Try to find existing conversation
   const existingConv = await db.queryOne(
     `SELECT * FROM conversations
      WHERE channel_type = $1 AND channel_chat_id = $2 AND user_id = $3`,
@@ -58,7 +56,6 @@ async function findOrCreateConversation(channelType, channelChatId, contactId, u
     return { conversation: existingConv, isNew: false };
   }
 
-  // Create new conversation
   const newConv = await db.queryOne(
     `INSERT INTO conversations (channel_type, channel_chat_id, contact_id, unread_count, user_id)
      VALUES ($1, $2, $3, $4, $5)
@@ -76,22 +73,18 @@ async function findOrCreateConversation(channelType, channelChatId, contactId, u
 
 /**
  * Process incoming message from Telegram
- * @param {object} message - Telegram message object
  */
 async function processIncomingMessage(message) {
   try {
-    console.log('Processing incoming message from:', message.from.username || message.from.id);
+    console.log('Processing incoming message from:', message.from?.username || message.from?.id);
 
-    // 0. Resolve user_id from the telegram channel
     const channel = await db.queryOne(
       `SELECT user_id FROM channels WHERE channel_type = 'telegram' AND is_active = true LIMIT 1`
     );
     const userId = channel?.user_id || null;
 
-    // 1. Find or create contact
     const contact = await findOrCreateContact(message.from, userId);
 
-    // 2. Find or create conversation
     const { conversation, isNew } = await findOrCreateConversation(
       'telegram',
       message.chat.id,
@@ -99,41 +92,94 @@ async function processIncomingMessage(message) {
       userId
     );
 
-    // 3. Determine message type and content
+    // Determine message type and content
     let messageText = message.text || message.caption || '';
     let mediaType = null;
     let mediaUrl = null;
+    let fileName = null;
+    let fileSize = null;
+    let mimeType = null;
+    let duration = null;
+    let width = null;
+    let height = null;
 
     if (message.photo) {
       mediaType = 'photo';
-      // Get the largest photo size
       const largestPhoto = message.photo[message.photo.length - 1];
       mediaUrl = largestPhoto.file_id;
+      width = largestPhoto.width;
+      height = largestPhoto.height;
+      fileSize = largestPhoto.file_size;
     } else if (message.video) {
       mediaType = 'video';
       mediaUrl = message.video.file_id;
+      fileName = message.video.file_name;
+      fileSize = message.video.file_size;
+      mimeType = message.video.mime_type;
+      duration = message.video.duration;
+      width = message.video.width;
+      height = message.video.height;
     } else if (message.document) {
       mediaType = 'document';
       mediaUrl = message.document.file_id;
+      fileName = message.document.file_name;
+      fileSize = message.document.file_size;
+      mimeType = message.document.mime_type;
     } else if (message.voice) {
       mediaType = 'voice';
       mediaUrl = message.voice.file_id;
+      fileSize = message.voice.file_size;
+      mimeType = message.voice.mime_type;
+      duration = message.voice.duration;
     } else if (message.audio) {
       mediaType = 'audio';
       mediaUrl = message.audio.file_id;
+      fileName = message.audio.file_name || message.audio.title;
+      fileSize = message.audio.file_size;
+      mimeType = message.audio.mime_type;
+      duration = message.audio.duration;
     } else if (message.sticker) {
       mediaType = 'sticker';
       mediaUrl = message.sticker.file_id;
       messageText = message.sticker.emoji || '(Sticker)';
+      width = message.sticker.width;
+      height = message.sticker.height;
+    } else if (message.video_note) {
+      mediaType = 'video_note';
+      mediaUrl = message.video_note.file_id;
+      fileSize = message.video_note.file_size;
+      duration = message.video_note.duration;
     }
 
-    // 4. Store message in database
+    // Handle reply threading
+    let replyToMessageId = null;
+    let replyToTelegramId = null;
+    if (message.reply_to_message) {
+      replyToTelegramId = message.reply_to_message.message_id;
+      const replyMsg = await db.queryOne(
+        `SELECT id FROM messages WHERE conversation_id = $1 AND telegram_message_id = $2`,
+        [conversation.id, replyToTelegramId]
+      );
+      if (replyMsg) {
+        replyToMessageId = replyMsg.id;
+      }
+    }
+
+    // Handle inline keyboard
+    let replyMarkup = null;
+    if (message.reply_markup) {
+      replyMarkup = message.reply_markup;
+    }
+
+    // Store message
     const newMessage = await db.queryOne(
       `INSERT INTO messages (
         conversation_id, sender_type, sender_id, text,
-        media_type, media_url, telegram_message_id, status, created_at
+        media_type, media_url, telegram_message_id, status, created_at,
+        file_name, file_size, mime_type, duration, width, height,
+        reply_to_message_id, reply_to_telegram_id, reply_markup
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
       RETURNING *`,
       [
         conversation.id,
@@ -144,7 +190,16 @@ async function processIncomingMessage(message) {
         mediaUrl,
         message.message_id,
         'sent',
-        new Date(message.date * 1000).toISOString()
+        new Date(message.date * 1000).toISOString(),
+        fileName,
+        fileSize,
+        mimeType,
+        duration,
+        width,
+        height,
+        replyToMessageId,
+        replyToTelegramId,
+        replyMarkup ? JSON.stringify(replyMarkup) : null
       ]
     );
 
@@ -152,7 +207,7 @@ async function processIncomingMessage(message) {
       throw new Error('Failed to store message');
     }
 
-    // 5. Update conversation last message info and increment unread count
+    // Update conversation
     const updatedConversation = await db.queryOne(
       `UPDATE conversations
        SET last_message_text = $1,
@@ -168,21 +223,15 @@ async function processIncomingMessage(message) {
       ]
     );
 
-    console.log('Updated conversation unread count to:', updatedConversation?.unread_count);
-
-    // 6. Emit real-time events
+    // Emit real-time events
     emitNewMessage(conversation.id, newMessage);
 
-    // Get full conversation with contact for the update event
     const fullConversation = await db.queryOne(
       `SELECT c.*,
         json_build_object(
-          'id', co.id,
-          'name', co.name,
-          'telegram_id', co.telegram_id,
-          'email', co.email,
-          'phone', co.phone,
-          'avatar_url', co.avatar_url
+          'id', co.id, 'name', co.name, 'telegram_id', co.telegram_id,
+          'email', co.email, 'phone', co.phone, 'avatar_url', co.avatar_url,
+          'username', co.username
         ) as contact
        FROM conversations c
        LEFT JOIN contacts co ON c.contact_id = co.id
@@ -206,48 +255,148 @@ async function processIncomingMessage(message) {
 }
 
 /**
- * Store outgoing message in database
- * @param {string} conversationId - UUID of the conversation
- * @param {string} text - Message text
- * @param {number} telegramMessageId - Telegram message ID
+ * Process edited message from Telegram
  */
-async function storeOutgoingMessage(conversationId, text, telegramMessageId) {
+async function processEditedMessage(message) {
   try {
+    const channel = await db.queryOne(
+      `SELECT user_id FROM channels WHERE channel_type = 'telegram' AND is_active = true LIMIT 1`
+    );
+    const userId = channel?.user_id || null;
+
+    // Find the conversation
+    const conversation = await db.queryOne(
+      `SELECT id FROM conversations WHERE channel_type = 'telegram' AND channel_chat_id = $1 AND user_id = $2`,
+      [message.chat.id.toString(), userId]
+    );
+    if (!conversation) return { success: false, error: 'Conversation not found' };
+
+    // Find the original message by telegram_message_id
+    const existingMsg = await db.queryOne(
+      `SELECT id FROM messages WHERE conversation_id = $1 AND telegram_message_id = $2`,
+      [conversation.id, message.message_id]
+    );
+
+    if (!existingMsg) {
+      // Message not found, process as new
+      return processIncomingMessage(message);
+    }
+
+    const newText = message.text || message.caption || '';
+
+    const updatedMessage = await db.queryOne(
+      `UPDATE messages SET text = $1, is_edited = true, edited_at = NOW(), updated_at = NOW()
+       WHERE id = $2 RETURNING *`,
+      [newText, existingMsg.id]
+    );
+
+    if (updatedMessage) {
+      emitMessageUpdated(conversation.id, updatedMessage);
+
+      // Update conversation last message if this was the latest
+      await db.query(
+        `UPDATE conversations SET last_message_text = $1, updated_at = NOW()
+         WHERE id = $2 AND last_message_time = (SELECT created_at FROM messages WHERE id = $3)`,
+        [newText, conversation.id, existingMsg.id]
+      );
+    }
+
+    console.log('Message edited:', existingMsg.id);
+    return { success: true, message: updatedMessage };
+  } catch (error) {
+    console.error('Error processing edited message:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Process message reaction update
+ */
+async function processMessageReaction(reaction) {
+  try {
+    const channel = await db.queryOne(
+      `SELECT user_id FROM channels WHERE channel_type = 'telegram' AND is_active = true LIMIT 1`
+    );
+    const userId = channel?.user_id || null;
+
+    const conversation = await db.queryOne(
+      `SELECT id FROM conversations WHERE channel_type = 'telegram' AND channel_chat_id = $1 AND user_id = $2`,
+      [reaction.chat.id.toString(), userId]
+    );
+    if (!conversation) return;
+
+    const msg = await db.queryOne(
+      `SELECT id, reactions FROM messages WHERE conversation_id = $1 AND telegram_message_id = $2`,
+      [conversation.id, reaction.message_id]
+    );
+    if (!msg) return;
+
+    // Build reaction list from new_reaction
+    const newReactions = (reaction.new_reaction || []).map(r => ({
+      type: r.type,
+      emoji: r.emoji || r.custom_emoji_id,
+      user_id: reaction.user?.id?.toString()
+    }));
+
+    const updatedMessage = await db.queryOne(
+      `UPDATE messages SET reactions = $1::jsonb, updated_at = NOW()
+       WHERE id = $2 RETURNING *`,
+      [JSON.stringify(newReactions), msg.id]
+    );
+
+    if (updatedMessage) {
+      emitMessageUpdated(conversation.id, updatedMessage);
+    }
+  } catch (error) {
+    console.error('Error processing reaction:', error);
+  }
+}
+
+/**
+ * Store outgoing message in database
+ */
+async function storeOutgoingMessage(conversationId, text, telegramMessageId, extra = {}) {
+  try {
+    const {
+      mediaType = null, mediaUrl = null, fileName = null, fileSize = null,
+      mimeType = null, duration = null, width = null, height = null,
+      replyToMessageId = null, replyMarkup = null
+    } = extra;
+
     const newMessage = await db.queryOne(
-      `INSERT INTO messages (conversation_id, sender_type, text, telegram_message_id, status)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING *`,
-      [conversationId, 'admin', text, telegramMessageId, 'sent']
+      `INSERT INTO messages (
+        conversation_id, sender_type, text, telegram_message_id, status,
+        media_type, media_url, file_name, file_size, mime_type, duration, width, height,
+        reply_to_message_id, reply_markup
+      )
+      VALUES ($1, 'admin', $2, $3, 'sent', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      RETURNING *`,
+      [
+        conversationId, text, telegramMessageId,
+        mediaType, mediaUrl, fileName, fileSize, mimeType, duration, width, height,
+        replyToMessageId, replyMarkup ? JSON.stringify(replyMarkup) : null
+      ]
     );
 
     if (!newMessage) {
       throw new Error('Failed to store outgoing message');
     }
 
-    // Update conversation last message
-    const updatedConversation = await db.queryOne(
+    await db.queryOne(
       `UPDATE conversations
-       SET last_message_text = $1,
-           last_message_time = NOW(),
-           updated_at = NOW()
-       WHERE id = $2
-       RETURNING *`,
-      [text, conversationId]
+       SET last_message_text = $1, last_message_time = NOW(), updated_at = NOW()
+       WHERE id = $2 RETURNING *`,
+      [text || `(${mediaType})`, conversationId]
     );
 
-    // Emit real-time events
     emitNewMessage(conversationId, newMessage);
 
-    // Get full conversation with contact for the update event
     const fullConversation = await db.queryOne(
       `SELECT c.*,
         json_build_object(
-          'id', co.id,
-          'name', co.name,
-          'telegram_id', co.telegram_id,
-          'email', co.email,
-          'phone', co.phone,
-          'avatar_url', co.avatar_url
+          'id', co.id, 'name', co.name, 'telegram_id', co.telegram_id,
+          'email', co.email, 'phone', co.phone, 'avatar_url', co.avatar_url,
+          'username', co.username
         ) as contact
        FROM conversations c
        LEFT JOIN contacts co ON c.contact_id = co.id
@@ -268,5 +417,7 @@ module.exports = {
   findOrCreateContact,
   findOrCreateConversation,
   processIncomingMessage,
+  processEditedMessage,
+  processMessageReaction,
   storeOutgoingMessage
 };

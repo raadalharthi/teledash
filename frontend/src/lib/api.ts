@@ -1,5 +1,4 @@
 // REST API Client for TeleDash
-// Replaces Supabase client for data fetching
 
 const API_URL = process.env.REACT_APP_API_URL ?? '';
 
@@ -79,11 +78,48 @@ export const messagesApi = {
       `/api/messages/${conversationId}?limit=${limit}&offset=${offset}`
     ),
 
-  send: (conversationId: string, text: string) =>
+  send: (conversationId: string, text: string, options?: {
+    media_type?: string;
+    media_url?: string;
+    reply_to_message_id?: string;
+  }) =>
     request<any>('/api/messages/send', {
       method: 'POST',
-      body: JSON.stringify({ conversation_id: conversationId, text }),
+      body: JSON.stringify({
+        conversation_id: conversationId,
+        text,
+        ...options,
+      }),
     }),
+
+  edit: (messageId: string, text: string) =>
+    request<any>(`/api/messages/${messageId}/edit`, {
+      method: 'PUT',
+      body: JSON.stringify({ text }),
+    }),
+
+  delete: (messageId: string) =>
+    request<any>(`/api/messages/${messageId}`, {
+      method: 'DELETE',
+    }),
+
+  react: (messageId: string, emoji: string | null) =>
+    request<any>(`/api/messages/${messageId}/react`, {
+      method: 'POST',
+      body: JSON.stringify({ emoji }),
+    }),
+
+  sendTyping: (conversationId: string) =>
+    request<any>('/api/messages/typing', {
+      method: 'POST',
+      body: JSON.stringify({ conversation_id: conversationId }),
+    }),
+
+  getFileUrl: (fileId: string) =>
+    request<any>(`/api/messages/file/${encodeURIComponent(fileId)}`),
+
+  getContactProfile: (contactId: string) =>
+    request<any>(`/api/messages/contact/${contactId}/profile`),
 
   markAsRead: (conversationId: string) =>
     request<any>(`/api/messages/mark-read/${conversationId}`, {

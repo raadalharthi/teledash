@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { messagesApi } from '../lib/api';
 import {
   joinConversation,
   leaveConversation,
   onNewMessage,
   onMessageUpdated,
+  onMessageDeleted,
   onConnectionChange,
   isConnected,
 } from '../lib/socket';
@@ -17,25 +18,24 @@ export function useMessages(conversationId: string | null) {
   const [realtimeStatus, setRealtimeStatus] = useState<string>(
     isConnected() ? 'connected' : 'disconnected'
   );
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const loadMessages = useCallback(async () => {
     if (!conversationId) return;
 
     try {
       setLoading(true);
-      console.log('Loading messages for conversation:', conversationId);
-
       const result = await messagesApi.getByConversation(conversationId, 100, 0);
 
       if (!result.success) {
         throw new Error(result.error || 'Failed to load messages');
       }
 
-      console.log('Loaded messages:', result.messages?.length || 0);
       setMessages(result.messages || []);
       setError(null);
 
-      // Scroll to bottom after loading
       setTimeout(() => {
         const chatContainer = document.getElementById('chat-messages');
         if (chatContainer) {
@@ -53,33 +53,22 @@ export function useMessages(conversationId: string | null) {
   useEffect(() => {
     if (!conversationId) {
       setMessages([]);
+      setReplyTo(null);
+      setEditingMessage(null);
       setRealtimeStatus('disconnected');
       return;
     }
 
-    // Load initial messages
     loadMessages();
-
-    // Join conversation room for real-time updates
     joinConversation(conversationId);
 
-    // Set up real-time event handlers
     const unsubNewMessage = onNewMessage((message) => {
-      // Only add message if it belongs to this conversation
       if (message.conversation_id !== conversationId) return;
-
-      console.log('New message received:', message);
       setMessages((prev) => {
-        // Check if message already exists (avoid duplicates)
-        if (prev.some((m) => m.id === message.id)) {
-          console.log('Duplicate message, skipping');
-          return prev;
-        }
-        console.log('Adding new message to state');
+        if (prev.some((m) => m.id === message.id)) return prev;
         return [...prev, message];
       });
 
-      // Auto-scroll to bottom
       setTimeout(() => {
         const chatContainer = document.getElementById('chat-messages');
         if (chatContainer) {
@@ -89,46 +78,48 @@ export function useMessages(conversationId: string | null) {
     });
 
     const unsubMessageUpdated = onMessageUpdated((message) => {
-      // Only update message if it belongs to this conversation
       if (message.conversation_id !== conversationId) return;
-
-      console.log('Message updated:', message);
       setMessages((prev) =>
         prev.map((msg) => (msg.id === message.id ? message : msg))
       );
     });
 
+    const unsubMessageDeleted = onMessageDeleted((data) => {
+      if (data.conversation_id !== conversationId) return;
+      setMessages((prev) => prev.filter((msg) => msg.id !== data.id));
+    });
+
     const unsubConnectionChange = onConnectionChange((connected) => {
       setRealtimeStatus(connected ? 'connected' : 'disconnected');
       if (connected && conversationId) {
-        // Rejoin room on reconnect
         joinConversation(conversationId);
       }
     });
 
-    // Cleanup
     return () => {
       leaveConversation(conversationId);
       unsubNewMessage();
       unsubMessageUpdated();
+      unsubMessageDeleted();
       unsubConnectionChange();
     };
   }, [conversationId, loadMessages]);
 
   const sendMessage = useCallback(
-    async (text: string) => {
-      if (!conversationId || !text.trim()) return;
-
-      console.log('Sending message:', text);
+    async (text: string, options?: { media_type?: string; media_url?: string }) => {
+      if (!conversationId || (!text.trim() && !options?.media_url)) return;
 
       try {
-        const result = await messagesApi.send(conversationId, text.trim());
+        const result = await messagesApi.send(conversationId, text.trim(), {
+          ...options,
+          reply_to_message_id: replyTo?.id,
+        });
 
         if (!result.success) {
           throw new Error(result.error || 'Failed to send message');
         }
 
-        console.log('Message sent successfully:', result);
+        setReplyTo(null);
         return result;
       } catch (err: any) {
         console.error('Error sending message:', err);
@@ -136,8 +127,60 @@ export function useMessages(conversationId: string | null) {
         throw err;
       }
     },
-    [conversationId]
+    [conversationId, replyTo]
   );
+
+  const editMessage = useCallback(
+    async (messageId: string, text: string) => {
+      try {
+        const result = await messagesApi.edit(messageId, text);
+        if (!result.success) throw new Error(result.error);
+        setEditingMessage(null);
+        return result;
+      } catch (err: any) {
+        setError(err.message);
+        throw err;
+      }
+    },
+    []
+  );
+
+  const deleteMessage = useCallback(
+    async (messageId: string) => {
+      try {
+        const result = await messagesApi.delete(messageId);
+        if (!result.success) throw new Error(result.error);
+        return result;
+      } catch (err: any) {
+        setError(err.message);
+        throw err;
+      }
+    },
+    []
+  );
+
+  const reactToMessage = useCallback(
+    async (messageId: string, emoji: string | null) => {
+      try {
+        const result = await messagesApi.react(messageId, emoji);
+        if (!result.success) throw new Error(result.error);
+        return result;
+      } catch (err: any) {
+        setError(err.message);
+      }
+    },
+    []
+  );
+
+  const sendTyping = useCallback(() => {
+    if (!conversationId) return;
+    if (typingTimeoutRef.current) return; // Already sent recently
+
+    messagesApi.sendTyping(conversationId);
+    typingTimeoutRef.current = setTimeout(() => {
+      typingTimeoutRef.current = null;
+    }, 3000);
+  }, [conversationId]);
 
   return {
     messages,
@@ -145,6 +188,14 @@ export function useMessages(conversationId: string | null) {
     error,
     realtimeStatus,
     sendMessage,
+    editMessage,
+    deleteMessage,
+    reactToMessage,
+    sendTyping,
+    replyTo,
+    setReplyTo,
+    editingMessage,
+    setEditingMessage,
     refresh: loadMessages,
   };
 }

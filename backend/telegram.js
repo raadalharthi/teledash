@@ -169,6 +169,155 @@ async function sendDocument(chatId, document, options = {}) {
 }
 
 /**
+ * Send a video
+ */
+async function sendVideo(chatId, video, options = {}) {
+  try {
+    const telegramBot = await getBot();
+    const message = await telegramBot.sendVideo(chatId, video, options);
+    return { success: true, message };
+  } catch (error) {
+    console.error('Error sending video:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Send a voice message
+ */
+async function sendVoice(chatId, voice, options = {}) {
+  try {
+    const telegramBot = await getBot();
+    const message = await telegramBot.sendVoice(chatId, voice, options);
+    return { success: true, message };
+  } catch (error) {
+    console.error('Error sending voice:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Send an audio file
+ */
+async function sendAudio(chatId, audio, options = {}) {
+  try {
+    const telegramBot = await getBot();
+    const message = await telegramBot.sendAudio(chatId, audio, options);
+    return { success: true, message };
+  } catch (error) {
+    console.error('Error sending audio:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Edit a message text
+ */
+async function editMessageText(chatId, messageId, text, options = {}) {
+  try {
+    const telegramBot = await getBot();
+    const message = await telegramBot.editMessageText(text, {
+      chat_id: chatId,
+      message_id: messageId,
+      ...options
+    });
+    return { success: true, message };
+  } catch (error) {
+    console.error('Error editing message:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Delete a message
+ */
+async function deleteMessage(chatId, messageId) {
+  try {
+    const telegramBot = await getBot();
+    await telegramBot.deleteMessage(chatId, messageId);
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting message:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Send chat action (typing indicator)
+ */
+async function sendChatAction(chatId, action = 'typing') {
+  try {
+    const telegramBot = await getBot();
+    await telegramBot.sendChatAction(chatId, action);
+    return { success: true };
+  } catch (error) {
+    console.error('Error sending chat action:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Set message reaction
+ */
+async function setMessageReaction(chatId, messageId, reaction) {
+  try {
+    const telegramBot = await getBot();
+    const token = await getBotToken();
+    // node-telegram-bot-api may not have this method, use raw API
+    const url = `https://api.telegram.org/bot${token}/setMessageReaction`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        reaction: reaction ? [{ type: 'emoji', emoji: reaction }] : [],
+        is_big: false
+      })
+    });
+    const data = await response.json();
+    if (!data.ok) throw new Error(data.description);
+    return { success: true };
+  } catch (error) {
+    console.error('Error setting reaction:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Get user profile photos
+ */
+async function getUserProfilePhotos(userId, limit = 1) {
+  try {
+    const telegramBot = await getBot();
+    const result = await telegramBot.getUserProfilePhotos(userId, { limit });
+    if (result.total_count > 0) {
+      const photo = result.photos[0][result.photos[0].length - 1];
+      const fileLink = await telegramBot.getFileLink(photo.file_id);
+      return { success: true, photoUrl: fileLink, totalCount: result.total_count };
+    }
+    return { success: true, photoUrl: null, totalCount: 0 };
+  } catch (error) {
+    console.error('Error getting profile photos:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Get chat info
+ */
+async function getChat(chatId) {
+  try {
+    const telegramBot = await getBot();
+    const chat = await telegramBot.getChat(chatId);
+    return { success: true, chat };
+  } catch (error) {
+    console.error('Error getting chat:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Get file download link
  * @param {string} fileId - Telegram file_id
  */
@@ -196,8 +345,6 @@ async function processUpdate(update) {
   }
 }
 
-// For backwards compatibility - get bot synchronously (may be null on first call)
-// Use getBot() async function for reliable access
 const getBotSync = () => bot;
 
 module.exports = {
@@ -211,6 +358,15 @@ module.exports = {
   sendMessage,
   sendPhoto,
   sendDocument,
+  sendVideo,
+  sendVoice,
+  sendAudio,
+  editMessageText,
+  deleteMessage,
+  sendChatAction,
+  setMessageReaction,
+  getUserProfilePhotos,
+  getChat,
   getFileLink,
   processUpdate
 };
