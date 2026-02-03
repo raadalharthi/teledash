@@ -344,9 +344,11 @@ async function testWhatsAppConnection(config) {
  */
 router.get('/whatsapp/qrcode', async (req, res) => {
   try {
+    console.log('WhatsApp QR code request - user:', req.user?.id, req.user?.email);
     const result = await whatsapp.getQRCode(req.user.id);
     res.json(result);
   } catch (error) {
+    console.error('WhatsApp QR code error:', error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });

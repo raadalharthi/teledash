@@ -19,7 +19,16 @@ async function getConfig(userId = null) {
     : 'SELECT config, is_active, user_id FROM channels WHERE channel_type = $1 AND is_active = true LIMIT 1';
   const params = userId ? ['whatsapp', userId] : ['whatsapp'];
 
+  console.log('WhatsApp getConfig - userId:', userId, 'query:', query, 'params:', params);
+
   const channel = await db.queryOne(query, params);
+  console.log('WhatsApp getConfig - channel result:', channel ? {
+    has_config: !!channel.config,
+    has_url: !!channel.config?.evolution_api_url,
+    user_id: channel.user_id,
+    is_active: channel.is_active
+  } : null);
+
   if (channel && channel.config?.evolution_api_url) {
     return { ...channel.config, user_id: channel.user_id, is_active: channel.is_active };
   }
