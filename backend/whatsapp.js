@@ -29,8 +29,8 @@ async function getConfig(userId = null) {
 /**
  * Create Evolution API client wrapper
  */
-async function getClient(forceRefresh = false) {
-  const config = await getConfig();
+async function getClient(userId = null, forceRefresh = false) {
+  const config = await getConfig(userId);
   if (!config) {
     throw new Error('WhatsApp not configured. Please configure it in Settings.');
   }
@@ -113,8 +113,8 @@ async function isConfigured() {
 /**
  * Create a new Evolution API instance
  */
-async function createInstance(instanceName) {
-  const config = await getConfig();
+async function createInstance(instanceName, userId = null) {
+  const config = await getConfig(userId);
   if (!config) throw new Error('WhatsApp not configured');
 
   const baseUrl = config.evolution_api_url.replace(/\/$/, '');
@@ -137,9 +137,9 @@ async function createInstance(instanceName) {
 /**
  * Get instance connection status
  */
-async function getInstanceStatus() {
+async function getInstanceStatus(userId = null) {
   try {
-    const client = await getClient();
+    const client = await getClient(userId);
     return await client.request('GET', `/instance/connectionState/${client.instanceName}`);
   } catch (error) {
     return { state: 'close', error: error.message };
@@ -149,10 +149,10 @@ async function getInstanceStatus() {
 /**
  * Get QR code for pairing
  */
-async function getQRCode() {
+async function getQRCode(userId = null) {
   try {
-    const client = await getClient();
-    const result = await client.request('GET', `/instance/qrcode/${client.instanceName}`);
+    const client = await getClient(userId);
+    const result = await client.request('GET', `/instance/connect/${client.instanceName}`);
     return { success: true, ...result };
   } catch (error) {
     return { success: false, error: error.message };
@@ -162,9 +162,9 @@ async function getQRCode() {
 /**
  * Logout and disconnect instance
  */
-async function logout() {
+async function logout(userId = null) {
   try {
-    const client = await getClient();
+    const client = await getClient(userId);
     await client.request('DELETE', `/instance/logout/${client.instanceName}`);
     return { success: true };
   } catch (error) {

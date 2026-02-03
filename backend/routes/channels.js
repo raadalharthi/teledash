@@ -344,7 +344,7 @@ async function testWhatsAppConnection(config) {
  */
 router.get('/whatsapp/qrcode', async (req, res) => {
   try {
-    const result = await whatsapp.getQRCode();
+    const result = await whatsapp.getQRCode(req.user.id);
     res.json(result);
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -357,7 +357,7 @@ router.get('/whatsapp/qrcode', async (req, res) => {
  */
 router.get('/whatsapp/status', async (req, res) => {
   try {
-    const result = await whatsapp.getInstanceStatus();
+    const result = await whatsapp.getInstanceStatus(req.user.id);
     res.json({ success: true, ...result });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -374,7 +374,7 @@ router.post('/whatsapp/instance', async (req, res) => {
     if (!instance_name) {
       return res.status(400).json({ success: false, error: 'Instance name is required' });
     }
-    const result = await whatsapp.createInstance(instance_name);
+    const result = await whatsapp.createInstance(instance_name, req.user.id);
     res.json({ success: true, ...result });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -387,7 +387,7 @@ router.post('/whatsapp/instance', async (req, res) => {
  */
 router.post('/whatsapp/logout', async (req, res) => {
   try {
-    const result = await whatsapp.logout();
+    const result = await whatsapp.logout(req.user.id);
     res.json(result);
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
