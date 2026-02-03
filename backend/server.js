@@ -72,6 +72,7 @@ app.get('/', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api', webhookRoutes);
 app.use('/api/email', emailWebhookRoutes);
+app.use('/api/whatsapp', require('./routes/whatsappWebhook'));
 
 // Protected routes (require auth)
 app.use('/api/messages', authMiddleware, messagesRoutes);

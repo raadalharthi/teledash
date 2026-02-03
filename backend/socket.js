@@ -150,6 +150,22 @@ function emitTypingIndicator(conversationId, userId, isTyping) {
   }
 }
 
+// Emit WhatsApp connection status change
+function emitWhatsAppConnection(data) {
+  if (io) {
+    io.emit('whatsapp-connection', data);
+    console.log('Emitted whatsapp-connection:', data.state);
+  }
+}
+
+// Emit WhatsApp QR code update
+function emitWhatsAppQRCode(data) {
+  if (io) {
+    io.emit('whatsapp-qrcode', data);
+    console.log('Emitted whatsapp-qrcode for instance:', data.instance);
+  }
+}
+
 module.exports = {
   setupSocket,
   getIO,
@@ -159,5 +175,7 @@ module.exports = {
   emitNewConversation,
   emitConversationDeleted,
   emitMessageDeleted,
-  emitTypingIndicator
+  emitTypingIndicator,
+  emitWhatsAppConnection,
+  emitWhatsAppQRCode
 };

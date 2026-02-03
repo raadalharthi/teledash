@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../db');
 const TelegramBot = require('node-telegram-bot-api');
 const { testConnection: testEmailConn, resolveEmailConfig } = require('../email');
+const whatsapp = require('../whatsapp');
 
 /**
  * Mask sensitive fields in config for frontend display
@@ -25,6 +26,10 @@ function maskConfig(config, channelType) {
     if (masked.smtp?.password) {
       masked.smtp = { ...masked.smtp, password: '********' };
     }
+  }
+
+  if (channelType === 'whatsapp' && masked.api_key) {
+    masked.api_key = '***' + masked.api_key.slice(-4);
   }
 
   return masked;
@@ -148,6 +153,9 @@ router.post('/:type/test', async (req, res) => {
       case 'email':
         result = await testEmailConn(config);
         break;
+      case 'whatsapp':
+        result = await testWhatsAppConnection(config);
+        break;
       default:
         result = { success: false, error: 'Unknown channel type' };
     }
@@ -210,6 +218,18 @@ function validateConfig(type, config) {
       }
       break;
 
+    case 'whatsapp':
+      if (!config.evolution_api_url) {
+        errors.push('Evolution API URL is required');
+      }
+      if (!config.api_key && !config.api_key?.startsWith('***')) {
+        errors.push('API Key is required');
+      }
+      if (!config.instance_name) {
+        errors.push('Instance name is required');
+      }
+      break;
+
     default:
       errors.push('Unknown channel type');
   }
@@ -242,6 +262,12 @@ function mergeConfig(existingConfig, newConfig, type) {
     }
   }
 
+  if (type === 'whatsapp') {
+    if (merged.api_key?.startsWith('***') && existingConfig.api_key) {
+      merged.api_key = existingConfig.api_key;
+    }
+  }
+
   return merged;
 }
 
@@ -266,5 +292,123 @@ async function testTelegramConnection(config) {
     return { success: false, error: error.message || 'Failed to connect to Telegram' };
   }
 }
+
+/**
+ * Test WhatsApp Evolution API connection
+ */
+async function testWhatsAppConnection(config) {
+  try {
+    if (!config.evolution_api_url || !config.instance_name) {
+      return { success: false, error: 'Evolution API URL and Instance Name are required' };
+    }
+
+    // Skip if API key is masked
+    if (config.api_key?.startsWith('***')) {
+      return { success: false, error: 'Please save the configuration first before testing' };
+    }
+
+    const baseUrl = config.evolution_api_url.replace(/\/$/, '');
+    const response = await fetch(`${baseUrl}/instance/connectionState/${config.instance_name}`, {
+      headers: {
+        'apikey': config.api_key,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const data = await response.json();
+
+    if (data.error) {
+      return { success: false, error: data.error || 'Connection failed' };
+    }
+
+    const state = data.state || data.instance?.state || 'unknown';
+
+    return {
+      success: true,
+      message: `Connected to instance: ${config.instance_name}`,
+      state: state,
+      connected: state === 'open'
+    };
+  } catch (error) {
+    return { success: false, error: error.message || 'Failed to connect to Evolution API' };
+  }
+}
+
+// ============================================
+// WhatsApp-specific routes
+// ============================================
+
+/**
+ * GET /api/channels/whatsapp/qrcode
+ * Get QR code for WhatsApp pairing
+ */
+router.get('/whatsapp/qrcode', async (req, res) => {
+  try {
+    const result = await whatsapp.getQRCode();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * GET /api/channels/whatsapp/status
+ * Get WhatsApp connection status
+ */
+router.get('/whatsapp/status', async (req, res) => {
+  try {
+    const result = await whatsapp.getInstanceStatus();
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * POST /api/channels/whatsapp/instance
+ * Create a new WhatsApp instance
+ */
+router.post('/whatsapp/instance', async (req, res) => {
+  try {
+    const { instance_name } = req.body;
+    if (!instance_name) {
+      return res.status(400).json({ success: false, error: 'Instance name is required' });
+    }
+    const result = await whatsapp.createInstance(instance_name);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * POST /api/channels/whatsapp/logout
+ * Logout from WhatsApp
+ */
+router.post('/whatsapp/logout', async (req, res) => {
+  try {
+    const result = await whatsapp.logout();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * POST /api/channels/whatsapp/webhook/set
+ * Set webhook URL for Evolution API
+ */
+router.post('/whatsapp/webhook/set', async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url) {
+      return res.status(400).json({ success: false, error: 'Webhook URL is required' });
+    }
+    const result = await whatsapp.setWebhook(url);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 module.exports = router;

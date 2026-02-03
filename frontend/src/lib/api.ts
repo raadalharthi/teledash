@@ -166,6 +166,26 @@ export const channelsApi = {
       method: 'POST',
       body: JSON.stringify({ config }),
     }),
+
+  // WhatsApp-specific endpoints
+  whatsappQRCode: () => request<any>('/api/channels/whatsapp/qrcode'),
+
+  whatsappStatus: () => request<any>('/api/channels/whatsapp/status'),
+
+  whatsappLogout: () =>
+    request<any>('/api/channels/whatsapp/logout', { method: 'POST' }),
+
+  whatsappCreateInstance: (instanceName: string) =>
+    request<any>('/api/channels/whatsapp/instance', {
+      method: 'POST',
+      body: JSON.stringify({ instance_name: instanceName }),
+    }),
+
+  whatsappSetWebhook: (url: string) =>
+    request<any>('/api/channels/whatsapp/webhook/set', {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    }),
 };
 
 // Webhook API

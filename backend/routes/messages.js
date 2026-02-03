@@ -6,7 +6,9 @@ const fs = require('fs');
 const db = require('../db');
 const telegram = require('../telegram');
 const email = require('../email');
+const whatsapp = require('../whatsapp');
 const { storeOutgoingMessage } = require('../utils/processMessage');
+const { storeOutgoingWhatsAppMessage } = require('../utils/processWhatsAppMessage');
 const { emitNewMessage, emitMessageUpdated, emitConversationUpdated, emitMessageDeleted, emitTypingIndicator } = require('../socket');
 
 // Configure multer for file uploads
@@ -98,9 +100,47 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       } else {
         return res.status(500).json({ success: false, error: result?.error || 'Failed to send' });
       }
+    } else if (conv.channel_type === 'whatsapp') {
+      // For WhatsApp, we need to upload the file to a publicly accessible URL
+      // For now, we'll use the local file path with a warning
+      // In production, you'd upload to S3/Cloudinary first
+
+      // Convert to base64 for Evolution API
+      const fileBuffer = fs.readFileSync(filePath);
+      const base64Data = `data:${file.mimetype};base64,${fileBuffer.toString('base64')}`;
+
+      const waMediaType = mediaType === 'photo' ? 'image' : mediaType;
+      const waOptions = { caption: caption || '', fileName: file.originalname };
+
+      if (replyToTelegramId) {
+        // Get the WhatsApp message ID if reply_to was set
+        const replyMsg = await db.queryOne('SELECT whatsapp_message_id FROM messages WHERE id = $1', [reply_to_message_id]);
+        if (replyMsg?.whatsapp_message_id) {
+          waOptions.quotedMessageId = replyMsg.whatsapp_message_id;
+        }
+      }
+
+      result = await whatsapp.sendMedia(conv.channel_chat_id, waMediaType, base64Data, waOptions);
+
+      fs.unlinkSync(filePath);
+
+      if (result && result.success) {
+        const waMessageId = result.message?.key?.id || result.message?.id;
+
+        await storeOutgoingWhatsAppMessage(
+          conversation_id,
+          caption || `[${mediaType}]`,
+          waMessageId,
+          { mediaType, mediaUrl: null, fileName: file.originalname, fileSize: file.size, mimeType: file.mimetype, replyToMessageId: reply_to_message_id }
+        );
+
+        return res.json({ success: true, message: 'File sent', whatsapp_message_id: waMessageId });
+      } else {
+        return res.status(500).json({ success: false, error: result?.error || 'Failed to send' });
+      }
     } else {
       fs.unlinkSync(filePath);
-      return res.status(400).json({ success: false, error: 'File upload only supported for Telegram' });
+      return res.status(400).json({ success: false, error: 'File upload not supported for this channel type' });
     }
   } catch (error) {
     if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
@@ -224,6 +264,52 @@ router.post('/send', async (req, res) => {
       } else {
         return res.status(500).json({ success: false, error: result.error });
       }
+    } else if (convResult.channel_type === 'whatsapp') {
+      // Resolve reply_to WhatsApp message id
+      let replyToWhatsAppId = null;
+      if (reply_to_message_id) {
+        const replyMsg = await db.queryOne(
+          'SELECT whatsapp_message_id FROM messages WHERE id = $1',
+          [reply_to_message_id]
+        );
+        if (replyMsg) replyToWhatsAppId = replyMsg.whatsapp_message_id;
+      }
+
+      const waOptions = {};
+      if (replyToWhatsAppId) {
+        waOptions.quotedMessageId = replyToWhatsAppId;
+      }
+
+      if (media_type && media_url) {
+        // Map media types
+        const waMediaType = media_type === 'photo' ? 'image' : media_type;
+        result = await whatsapp.sendMedia(
+          convResult.channel_chat_id,
+          waMediaType,
+          media_url,
+          { caption: text || '', ...waOptions }
+        );
+      } else {
+        result = await whatsapp.sendMessage(convResult.channel_chat_id, text, waOptions);
+      }
+
+      if (result.success) {
+        const waMessageId = result.message?.key?.id || result.message?.id;
+        await storeOutgoingWhatsAppMessage(
+          conversation_id,
+          text || `[${media_type}]`,
+          waMessageId,
+          { mediaType: media_type, mediaUrl: media_url, replyToMessageId: reply_to_message_id }
+        );
+
+        return res.json({
+          success: true,
+          message: 'Message sent successfully',
+          whatsapp_message_id: waMessageId
+        });
+      } else {
+        return res.status(500).json({ success: false, error: result.error });
+      }
     } else {
       return res.status(400).json({ success: false, error: `Channel type ${convResult.channel_type} not yet supported` });
     }
@@ -326,6 +412,8 @@ router.post('/typing', async (req, res) => {
 
     if (conv.channel_type === 'telegram') {
       await telegram.sendChatAction(conv.channel_chat_id, 'typing');
+    } else if (conv.channel_type === 'whatsapp') {
+      await whatsapp.sendPresence(conv.channel_chat_id, 'composing');
     }
 
     res.json({ success: true });

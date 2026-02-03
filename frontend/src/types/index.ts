@@ -69,6 +69,7 @@ export interface Message {
   height?: number;
   status: 'sent' | 'delivered' | 'read' | 'failed';
   telegram_message_id?: number;
+  whatsapp_message_id?: string;
   is_edited?: boolean;
   is_deleted?: boolean;
   edited_at?: string;
@@ -89,7 +90,7 @@ export interface Channel {
   id: string;
   channel_type: 'telegram' | 'email' | 'whatsapp' | 'sms';
   is_active: boolean;
-  config: TelegramConfig | EmailConfig | Record<string, any>;
+  config: TelegramConfig | EmailConfig | WhatsAppConfig | Record<string, any>;
   created_at: string;
   updated_at: string;
 }
@@ -114,6 +115,13 @@ export interface EmailConfig {
   };
   from_name?: string;
   from_email?: string;
+}
+
+export interface WhatsAppConfig {
+  evolution_api_url: string;
+  api_key: string;
+  instance_name: string;
+  connected?: boolean;
 }
 
 export interface ConnectionTestResult {
@@ -182,5 +190,6 @@ export interface SendMessageResponse {
   success: boolean;
   message?: string;
   telegram_message_id?: number;
+  whatsapp_message_id?: string;
   error?: string;
 }
